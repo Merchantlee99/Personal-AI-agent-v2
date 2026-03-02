@@ -25,6 +25,8 @@
 - 워크플로 JSON 변경을 강제로 반영하려면 `N8N_BOOTSTRAP_FORCE_IMPORT=true`를 사용한다.
 - 중복 워크플로가 생기면 `npm run n8n:cleanup`으로 단일 활성 상태를 강제한다.
   - 현재 n8n CLI에는 `delete:workflow`가 없어서 중복 레코드는 비활성화로 정리한다.
+- 중복 레코드를 물리적으로 1개로 정리하려면 `npm run n8n:reset-singleton` 실행
+  - 실행 전 자동 백업 경로: `shared_data/workflows/backups/n8n-reset-<timestamp>`
 
 ### Hermes 실사용 워크플로 검증
 `n8n/workflows/hermes-daily-briefing.json`를 기준으로 브리핑 템플릿/중복 억제를 검증한다.
@@ -87,6 +89,8 @@
 - 출력 항목: `/api/agent` 총 호출수, 성공수, 5xx, quota 429 이벤트
 - 경보 임계값: `LLM_ALERT_429_THRESHOLD` (기본 0)
 - 엄격 모드 실패 처리: `LLM_ALERT_STRICT=true`
+- 우선 데이터 소스: `shared_data/logs/llm_usage_metrics.json` (llm-proxy 누적 메트릭 저장)
+- metrics 파일이 없으면 컨테이너 로그 파싱으로 fallback
 
 ### CI 자동 검증
 - 워크플로: [`.github/workflows/runtime-verification.yml`](../.github/workflows/runtime-verification.yml)

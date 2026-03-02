@@ -15,7 +15,8 @@
     "test:proxy": "bash scripts/tests/run-proxy-tests.sh",
     "n8n:bootstrap": "bash scripts/n8n/bootstrap-local-webhook.sh",
     "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",
-    "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh"
+    "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh",
+    "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -25,7 +26,8 @@
     "next": "^15.5.12",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "three-stdlib": "^2.36.1"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

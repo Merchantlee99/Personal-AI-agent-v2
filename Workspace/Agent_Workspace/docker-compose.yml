@@ -7,6 +7,7 @@ services:
       - .env.local
     environment:
       AGENT_CONFIG_PATH: /app/config/agents.json
+      LLM_USAGE_STORE_PATH: /app/shared_logs/llm_usage_metrics.json
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
@@ -18,6 +19,7 @@ services:
       - "8001:8000"
     volumes:
       - ./config:/app/config:ro
+      - ./shared_data/logs:/app/shared_logs
     healthcheck:
       test:
         - CMD-SHELL
