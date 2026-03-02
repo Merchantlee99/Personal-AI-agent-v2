@@ -77,7 +77,7 @@ services:
       - n8n_data:/home/node/.n8n
       - ./shared_data:/data/shared_data
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     healthcheck:
       test:
         - CMD-SHELL

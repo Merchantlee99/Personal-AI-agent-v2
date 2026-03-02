@@ -13,6 +13,7 @@
     "verify:smoke": "bash scripts/verify/smoke-runtime.sh",
     "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
     "security:branch-protect": "bash scripts/security/apply-branch-protection.sh",
+    "security:branch-protect:auto": "bash scripts/security/auto-branch-protection-profile.sh",
     "test:proxy": "bash scripts/tests/run-proxy-tests.sh",
     "n8n:bootstrap": "bash scripts/n8n/bootstrap-local-webhook.sh",
     "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",

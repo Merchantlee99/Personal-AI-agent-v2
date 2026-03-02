@@ -41,6 +41,8 @@
 - `external` 네트워크: 외부 노출 필요 서비스만 연결
 - `nanoclaw-agent`: internal only
 - `llm-proxy`, `n8n`: internal + external
+- `n8n` 포트는 기본 `127.0.0.1:5678` 바인딩(로컬 전용)
+- 외부 공개가 필요하면 ingress/reverse-proxy에서 별도 인증 게이트를 둔다.
 
 ## 5. 비밀값 운영
 - 로컬 템플릿은 `.env.local.example`에만 저장
@@ -49,6 +51,8 @@
   - `INTERNAL_API_TOKEN`
   - `INTERNAL_SIGNING_SECRET`
   - `N8N_ENCRYPTION_KEY`
+  - `N8N_BASIC_AUTH_USER`
+  - `N8N_BASIC_AUTH_PASSWORD`
 
 ## 6. Prompt Injection 방어
 - `/api/search` 결과는 실행 대상이 아닌 구조화 데이터(`title`, `url`, `snippet`)로만 반환
