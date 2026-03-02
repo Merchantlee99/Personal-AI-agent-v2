@@ -37,3 +37,5 @@ shared_data/workflows/*
 
 # Local logs
 dev.log
+dev_log*.txt
+curl*.txt
