@@ -34,3 +34,5 @@ npm run verify:llm-usage
 - Frontend: `http://localhost:3000`
 - llm-proxy health: `http://localhost:8001/health`
 - n8n: `http://localhost:5678`
+- Minerva orchestration event ingest: `POST /api/orchestration/events`
+- Telegram callback webhook: `POST /api/telegram/webhook`

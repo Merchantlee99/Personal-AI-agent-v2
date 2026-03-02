@@ -11,11 +11,13 @@
     "verify:ui-structure": "bash scripts/verify/check-ui-structure.sh",
     "verify:ui-inline-style": "bash scripts/verify/check-inline-style-budget.sh",
     "verify:smoke": "bash scripts/verify/smoke-runtime.sh",
+    "verify:orchestration": "bash scripts/verify/check-orchestration-flow.sh",
     "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
     "security:branch-protect": "bash scripts/security/apply-branch-protection.sh",
     "security:branch-protect:auto": "bash scripts/security/auto-branch-protection-profile.sh",
     "test:proxy": "bash scripts/tests/run-proxy-tests.sh",
     "n8n:bootstrap": "bash scripts/n8n/bootstrap-local-webhook.sh",
+    "n8n:dispatch-hermes": "bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh",
     "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",
     "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh",
     "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh"

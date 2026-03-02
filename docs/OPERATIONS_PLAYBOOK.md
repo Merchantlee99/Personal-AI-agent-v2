@@ -11,6 +11,9 @@
 3. 루트 경로에서 Docker/Node 설치 상태 확인
 4. 에이전트 ID/role 변경 시 `config/agents.json`만 수정
 5. 실제 모델 호출 사용 시 `.env.local`에 `LLM_PROVIDER=gemini`와 `GEMINI_API_KEY`(또는 `GOOGLE_API_KEY`) 설정
+6. Telegram orchestration 사용 시 `.env.local`에 아래 항목 설정
+  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET`
+  - 정책값: `MINERVA_IMMEDIATE_MIN_PRIORITY`, `MINERVA_IMMEDIATE_MIN_CONFIDENCE`, `MINERVA_TOPIC_COOLDOWN_HOURS`, `MINERVA_DIGEST_SLOTS`
 
 ## 2. 기동 절차
 1. `docker compose build`
@@ -45,6 +48,9 @@
   - 2차 동일 호출: `skipped=true`, `reason=duplicate_briefing`
 4. 기본 정책: 기존 Hermes workflow 재사용(중복 누적 방지)
   - workflow JSON 변경을 강제로 반영할 때만 `N8N_HERMES_FORCE_IMPORT=true bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`
+5. Minerva 오케스트레이션 연동 검증(선택)
+  - `HERMES_DISPATCH_TO_MINERVA=true FRONTEND_PORT=3000 bash scripts/n8n/test-hermes-daily-briefing-workflow.sh`
+  - 내부적으로 `scripts/n8n/dispatch-hermes-briefing-to-minerva.sh`를 통해 `/api/orchestration/events`로 이벤트 publish
 
 ## 3. 런타임 검증
 1. llm-proxy health
@@ -73,6 +79,20 @@
 - Clio(`agent_id=clio`) 투입 시 `shared_data/verified_inbox`에 JSON 생성 확인
   - 핵심 필드: `tags`, `related_links`, `notebooklm.ready`, `notebooklm.vault_file`
 
+5. Minerva orchestration 이벤트 확인
+- `POST /api/orchestration/events`로 Hermes/Clio 이벤트 입력
+- 응답에서 `decision` 확인
+  - `send_now`: Telegram 즉시 발송 시도
+  - `queue_digest`: digest 큐 적재
+  - `suppressed_cooldown`: 동일 토픽 쿨다운 억제
+
+6. Telegram inline callback 확인
+- `POST /api/telegram/webhook` (Telegram callback update 형식)
+- 액션별 기대 결과:
+  - `clio_save:event_id` -> `shared_data/inbox`에 clio task 생성
+  - `hermes_deep_dive:event_id` -> `shared_data/inbox`에 hermes deep-dive task 생성
+  - `mute_topic:event_id` -> `shared_data/shared_memory/topic_cooldowns.json` 갱신
+
 ### 통합 스모크 검증(권장)
 - `npm run verify:smoke`
 - 실행 항목:
@@ -83,6 +103,13 @@
   - `/api/chat` legacy alias 거부(400)
   - agent watchdog 처리
   - 보안 옵션(read_only/cap_drop/no-new-privileges/network) 점검
+
+### 오케스트레이션 흐름 검증
+- Next.js dev 실행 상태에서 `npm run verify:orchestration`
+- 검증 항목:
+  - 이벤트 수집(`/api/orchestration/events`)
+  - Telegram callback 액션(`/api/telegram/webhook`)
+  - `clio_save` 액션의 inbox task 생성
 
 ### 회귀 테스트
 - `npm run test:proxy`
