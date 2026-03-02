@@ -35,6 +35,37 @@ wait_for_container_health() {
   return 1
 }
 
+post_chat_expect_200() {
+  local body="$1"
+  local output_file="$2"
+  local label="$3"
+
+  for i in 1 2 3 4 5; do
+    status="$(
+      curl -sS -o "$output_file" -w '%{http_code}' \
+        -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
+        -H 'content-type: application/json' \
+        -d "$body" || true
+    )"
+    if [[ "$status" == "200" ]]; then
+      cat "$output_file"
+      return 0
+    fi
+    if [[ "$status" == "502" || "$status" == "429" ]]; then
+      echo "[smoke] ${label} retry $i -> status=$status"
+      sleep 2
+      continue
+    fi
+    echo "[smoke] ${label} unexpected status=$status" >&2
+    cat "$output_file" >&2 || true
+    return 1
+  done
+
+  echo "[smoke] ${label} failed after retries" >&2
+  cat "$output_file" >&2 || true
+  return 1
+}
+
 echo "[smoke] agent config check"
 bash scripts/verify/validate-agent-config.sh
 
@@ -43,6 +74,10 @@ bash scripts/verify/check-ui-structure.sh
 
 echo "[smoke] ui inline style budget check"
 bash scripts/verify/check-inline-style-budget.sh
+
+echo "[smoke] ensure shared_data writable"
+mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
+chmod -R a+rwX shared_data || true
 
 echo "[smoke] docker services up"
 docker compose up -d llm-proxy nanoclaw-agent n8n >/dev/null
@@ -93,10 +128,10 @@ if [[ "$ready" != "1" ]]; then
 fi
 
 echo "[smoke] /api/chat canonical check"
-curl -fsS -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
-  -H 'content-type: application/json' \
-  -d '{"agentId":"minerva","message":"smoke-canonical"}' >/tmp/nanoclaw_smoke_chat_canonical.json
-cat /tmp/nanoclaw_smoke_chat_canonical.json
+post_chat_expect_200 \
+  '{"agentId":"minerva","message":"smoke-canonical"}' \
+  /tmp/nanoclaw_smoke_chat_canonical.json \
+  "chat canonical"
 
 echo "[smoke] /api/chat legacy alias rejection check"
 alias_status="$(
@@ -112,10 +147,10 @@ if [[ "$alias_status" != "400" ]]; then
 fi
 
 echo "[smoke] /api/chat legacy history(content) check"
-curl -fsS -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
-  -H 'content-type: application/json' \
-  -d '{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}' >/tmp/nanoclaw_smoke_chat_history.json
-cat /tmp/nanoclaw_smoke_chat_history.json
+post_chat_expect_200 \
+  '{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}' \
+  /tmp/nanoclaw_smoke_chat_history.json \
+  "chat legacy history"
 
 echo "[smoke] n8n webhook check"
 curl -fsS -X POST 'http://localhost:5678/webhook/nanoclaw-v2-smoke' \

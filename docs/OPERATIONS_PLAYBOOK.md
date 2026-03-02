@@ -136,3 +136,15 @@ npm run security:branch-protect
 - PR 1명 승인 필수 + stale review dismiss
 - direct force push/delete 금지
 - linear history + conversation resolution 필수
+
+문제 해결(401/403/404):
+- `401 Bad credentials`는 기존 보호 규칙 충돌이 아니라 토큰 인증 실패다.
+- `403`은 토큰은 유효하지만 repo admin 권한 부족 또는 SSO 승인 누락일 가능성이 높다.
+- `404`는 `GITHUB_REPO`/`GITHUB_BRANCH` 값 오류 또는 저장소 접근권한 문제일 수 있다.
+
+사전 점검 명령:
+```bash
+curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user | jq '{login,id}'
+curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO" | jq '.permissions'
+curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPO/branches/$GITHUB_BRANCH/protection" | jq '.required_status_checks.contexts'
+```
