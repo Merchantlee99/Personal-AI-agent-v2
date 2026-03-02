@@ -137,6 +137,20 @@ npm run security:branch-protect
 - direct force push/delete 금지
 - linear history + conversation resolution 필수
 
+운영 프로필:
+- `PROTECTION_PROFILE=strict` (기본): 승인 1명 필수
+- `PROTECTION_PROFILE=solo`: 승인 0명(1인 운영용), 나머지 보호 규칙은 유지
+- `PROTECTION_PROFILE=auto`: 토큰 사용자와 저장소 owner가 같으면 승인 0명, 아니면 1명
+
+1인 운영 적용 예시:
+```bash
+PROTECTION_PROFILE=solo \
+GITHUB_TOKEN=*** \
+GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 \
+GITHUB_BRANCH=main \
+npm run security:branch-protect
+```
+
 문제 해결(401/403/404):
 - `401 Bad credentials`는 기존 보호 규칙 충돌이 아니라 토큰 인증 실패다.
 - `403`은 토큰은 유효하지만 repo admin 권한 부족 또는 SSO 승인 누락일 가능성이 높다.
