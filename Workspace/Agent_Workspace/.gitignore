@@ -34,3 +34,6 @@ shared_data/workflows/*
 
 # OS
 .DS_Store
+
+# Local logs
+dev.log
