@@ -115,3 +115,19 @@
 - [ ] `.env.local` 비커밋 상태
 - [ ] canonical id(`minerva/clio/hermes`)만 허용되는지 확인
 - [ ] unknown agent가 minerva fallback 되는지 확인
+
+## 6. 브랜치 보호 적용
+GitHub API 토큰이 준비되면 아래 명령으로 `main` 보호 규칙을 적용한다.
+
+```bash
+GITHUB_TOKEN=*** \
+GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 \
+GITHUB_BRANCH=main \
+npm run security:branch-protect
+```
+
+기본 적용값:
+- required status check: `runtime-verification`
+- PR 1명 승인 필수 + stale review dismiss
+- direct force push/delete 금지
+- linear history + conversation resolution 필수
