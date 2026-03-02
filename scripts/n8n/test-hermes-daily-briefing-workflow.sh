@@ -35,4 +35,9 @@ cat /tmp/hermes_second.json
 
 python3 -c 'import json,sys; d=json.load(open("/tmp/hermes_second.json")); assert d.get("ok") is True; assert d.get("skipped") is True; assert d.get("reason") == "duplicate_briefing"; print("[hermes-test] dedup validated")'
 
+if [[ "${HERMES_DISPATCH_TO_MINERVA:-false}" == "true" ]]; then
+  echo "[hermes-test] dispatch first briefing to minerva orchestration"
+  FRONTEND_PORT="${FRONTEND_PORT:-3000}" bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh /tmp/hermes_first.json
+fi
+
 echo "[hermes-test] PASS"

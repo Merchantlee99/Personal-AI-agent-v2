@@ -23,6 +23,11 @@
 4. `HMAC_SHA256(secret, "timestamp.nonce.body")` 검증
 5. nonce replay 차단(메모리 캐시 TTL)
 
+Telegram webhook 경로(`/api/telegram/webhook`)는 다음 정책을 적용한다.
+- `x-telegram-bot-api-secret-token` 검증(설정 시 필수)
+- callback payload는 `action:event_id` 규격만 허용
+- callback data에서 원문/비밀값 직접 전달 금지
+
 관련 환경변수:
 - `INTERNAL_RATE_LIMIT_PER_MINUTE`
 - `INTERNAL_RATE_LIMIT_WINDOW_SEC`
@@ -57,6 +62,7 @@
 ## 6. Prompt Injection 방어
 - `/api/search` 결과는 실행 대상이 아닌 구조화 데이터(`title`, `url`, `snippet`)로만 반환
 - 시스템 명령/툴 호출로 승격하지 않음
+- Hermes 이벤트/브리핑도 동일하게 데이터 레코드로만 전달하고 Minerva가 최종 문장화한다.
 
 ## 7. 의존성 보안 운영
 - Next.js는 보안 패치 릴리즈를 우선 적용한다(현재 기준: 15.5.12).
