@@ -28,6 +28,8 @@
 - `N8N_ENCRYPTION_KEY`를 교체하면 기존 `n8n_data`의 설정 키와 불일치가 날 수 있다.
 - 이 경우 기존 n8n 볼륨의 워크플로가 보존되지 않으므로 bootstrap을 재실행해야 한다.
 - 워크플로 JSON 변경을 강제로 반영하려면 `N8N_BOOTSTRAP_FORCE_IMPORT=true`를 사용한다.
+- `n8n` 포트는 기본 `127.0.0.1:5678` 로컬 바인딩이다.
+- n8n v1+에서는 `N8N_BASIC_AUTH_*`가 공식적으로 제거되었으므로 외부 공개 시 ingress/reverse-proxy 인증을 추가한다.
 - 중복 워크플로가 생기면 `npm run n8n:cleanup`으로 단일 활성 상태를 강제한다.
   - 현재 n8n CLI에는 `delete:workflow`가 없어서 중복 레코드는 비활성화로 정리한다.
 - 중복 레코드를 물리적으로 1개로 정리하려면 `npm run n8n:reset-singleton` 실행
@@ -149,6 +151,15 @@ GITHUB_TOKEN=*** \
 GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 \
 GITHUB_BRANCH=main \
 npm run security:branch-protect
+```
+
+운영자 수 기준 자동 적용(권장):
+- push 권한 운영자 수가 `2` 이상이면 `strict`, 미만이면 `solo`를 자동 선택한다.
+```bash
+GITHUB_TOKEN=*** \
+GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 \
+GITHUB_BRANCH=main \
+npm run security:branch-protect:auto
 ```
 
 문제 해결(401/403/404):
