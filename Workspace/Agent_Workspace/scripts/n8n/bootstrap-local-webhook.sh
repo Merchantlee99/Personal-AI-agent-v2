@@ -15,11 +15,11 @@ get_workflow_ids() {
 }
 
 wait_for_n8n_cli() {
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  for i in $(seq 1 30); do
     if docker exec nanoclaw-n8n n8n list:workflow >/dev/null 2>&1; then
       return 0
     fi
-    echo "[bootstrap] waiting for n8n CLI ready ($i/10)"
+    echo "[bootstrap] waiting for n8n CLI ready ($i/30)"
     sleep 2
   done
   echo "[bootstrap] n8n CLI not ready after retries" >&2
