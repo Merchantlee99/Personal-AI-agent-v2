@@ -19,8 +19,15 @@
 검증 흐름:
 1. internal token 고정값 비교(상수 시간 비교)
 2. timestamp 유효 시간(±5분)
-3. nonce replay 차단(메모리 캐시 TTL)
+3. 요청 rate-limit(기본 분당 120, 환경변수로 조정)
 4. `HMAC_SHA256(secret, "timestamp.nonce.body")` 검증
+5. nonce replay 차단(메모리 캐시 TTL)
+
+관련 환경변수:
+- `INTERNAL_RATE_LIMIT_PER_MINUTE`
+- `INTERNAL_RATE_LIMIT_WINDOW_SEC`
+- `INTERNAL_NONCE_TTL_SEC`
+- `INTERNAL_NONCE_MAX_ENTRIES`
 
 ## 3. Docker 보안 기본값
 각 서비스는 아래 옵션을 기본 적용한다.

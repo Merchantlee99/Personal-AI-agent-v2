@@ -3,6 +3,11 @@
 ## 1. 사전 준비
 1. `.env.local.example`를 복사해 `.env.local` 생성
 2. `INTERNAL_API_TOKEN`, `INTERNAL_SIGNING_SECRET`, `N8N_ENCRYPTION_KEY`를 강한 값으로 교체
+  - 필요 시 내부 보호 한도 조정:
+    - `INTERNAL_RATE_LIMIT_PER_MINUTE`
+    - `INTERNAL_RATE_LIMIT_WINDOW_SEC`
+    - `INTERNAL_NONCE_TTL_SEC`
+    - `INTERNAL_NONCE_MAX_ENTRIES`
 3. 루트 경로에서 Docker/Node 설치 상태 확인
 4. 에이전트 ID/role 변경 시 `config/agents.json`만 수정
 5. 실제 모델 호출 사용 시 `.env.local`에 `LLM_PROVIDER=gemini`와 `GEMINI_API_KEY`(또는 `GOOGLE_API_KEY`) 설정

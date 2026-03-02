@@ -7,7 +7,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from app.security import replay_window, verify_internal_request
+from app.security import rate_limiter, replay_window, verify_internal_request
 
 
 class DummyRequest:
@@ -23,12 +23,16 @@ class InternalSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.old_token = os.environ.get("INTERNAL_API_TOKEN")
         self.old_secret = os.environ.get("INTERNAL_SIGNING_SECRET")
+        self.old_rate_limit = os.environ.get("INTERNAL_RATE_LIMIT_PER_MINUTE")
         os.environ["INTERNAL_API_TOKEN"] = "test-internal-token"
         os.environ["INTERNAL_SIGNING_SECRET"] = "test-signing-secret"
+        os.environ["INTERNAL_RATE_LIMIT_PER_MINUTE"] = "120"
         replay_window.clear()
+        rate_limiter.clear()
 
     def tearDown(self) -> None:
         replay_window.clear()
+        rate_limiter.clear()
         if self.old_token is None:
             os.environ.pop("INTERNAL_API_TOKEN", None)
         else:
@@ -38,6 +42,11 @@ class InternalSecurityTests(unittest.TestCase):
             os.environ.pop("INTERNAL_SIGNING_SECRET", None)
         else:
             os.environ["INTERNAL_SIGNING_SECRET"] = self.old_secret
+
+        if self.old_rate_limit is None:
+            os.environ.pop("INTERNAL_RATE_LIMIT_PER_MINUTE", None)
+        else:
+            os.environ["INTERNAL_RATE_LIMIT_PER_MINUTE"] = self.old_rate_limit
 
     @staticmethod
     def _signature(secret: str, timestamp: str, nonce: str, body: str) -> str:
@@ -92,6 +101,25 @@ class InternalSecurityTests(unittest.TestCase):
         self.assertIsNotNone(replay_error)
         self.assertEqual(replay_error.status_code, 409)
         self.assertEqual(replay_error.detail, "Replay detected")
+
+    def test_rate_limit_blocks_excess_requests(self) -> None:
+        os.environ["INTERNAL_RATE_LIMIT_PER_MINUTE"] = "1"
+        body = '{"agent_id":"hermes","message":"rate-limit-check","history":[],"source":"web"}'
+        timestamp = str(int(time.time()))
+
+        nonce_one = "nonce-rate-1"
+        signature_one = self._signature("test-signing-secret", timestamp, nonce_one, body)
+        first_request = self._request(body=body, timestamp=timestamp, nonce=nonce_one, signature=signature_one)
+        first_error = self._run_verify(first_request)
+        self.assertIsNone(first_error)
+
+        nonce_two = "nonce-rate-2"
+        signature_two = self._signature("test-signing-secret", timestamp, nonce_two, body)
+        second_request = self._request(body=body, timestamp=timestamp, nonce=nonce_two, signature=signature_two)
+        second_error = self._run_verify(second_request)
+        self.assertIsNotNone(second_error)
+        self.assertEqual(second_error.status_code, 429)
+        self.assertEqual(second_error.detail, "Rate limit exceeded")
 
 
 if __name__ == "__main__":
