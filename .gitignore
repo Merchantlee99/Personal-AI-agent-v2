@@ -1,0 +1,41 @@
+# Node
+node_modules/
+.next/
+out/
+
+# Python
+__pycache__/
+*.pyc
+
+# Env & local config
+.env
+.env.*
+!.env.local.example
+
+# Runtime data
+shared_data/inbox/*
+!shared_data/inbox/.gitkeep
+shared_data/outbox/*
+!shared_data/outbox/.gitkeep
+shared_data/archive/*
+!shared_data/archive/.gitkeep
+shared_data/logs/*
+!shared_data/logs/.gitkeep
+shared_data/verified_inbox/*
+!shared_data/verified_inbox/.gitkeep
+shared_data/obsidian_vault/*
+!shared_data/obsidian_vault/.gitkeep
+shared_data/shared_memory/*
+!shared_data/shared_memory/.gitkeep
+shared_data/queue/*
+!shared_data/queue/.gitkeep
+shared_data/workflows/*
+!shared_data/workflows/.gitkeep
+
+# OS
+.DS_Store
+
+# Local logs
+dev.log
+dev_log*.txt
+curl*.txt

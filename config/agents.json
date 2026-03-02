@@ -1,0 +1,18 @@
+{
+  "canonical_ids": ["minerva", "clio", "hermes"],
+  "aliases": {},
+  "agents": {
+    "minerva": {
+      "display_name": "Minerva",
+      "role": "orchestration/priority/decision"
+    },
+    "clio": {
+      "display_name": "Clio",
+      "role": "knowledge/documentation/notebooklm"
+    },
+    "hermes": {
+      "display_name": "Hermes",
+      "role": "web research/trends/briefing"
+    }
+  }
+}

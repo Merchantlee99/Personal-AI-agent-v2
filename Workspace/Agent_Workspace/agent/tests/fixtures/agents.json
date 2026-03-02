@@ -1,8 +1,0 @@
-{
-  "canonical_ids": ["minerva", "clio", "hermes"],
-  "aliases": {
-    "ace": "minerva",
-    "owl": "clio",
-    "dolphin": "hermes"
-  }
-}
