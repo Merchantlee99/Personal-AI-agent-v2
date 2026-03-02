@@ -1,0 +1,72 @@
+name: Runtime Verification
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Prepare Local Env For CI
+        run: |
+          cp .env.local.example .env.local
+          internal="$(openssl rand -hex 32)"
+          signing="$(openssl rand -hex 32)"
+          n8nkey="$(openssl rand -hex 32)"
+          awk -v t1="$internal" -v t2="$signing" -v t3="$n8nkey" '
+            /^INTERNAL_API_TOKEN=/{print "INTERNAL_API_TOKEN=" t1; next}
+            /^INTERNAL_SIGNING_SECRET=/{print "INTERNAL_SIGNING_SECRET=" t2; next}
+            /^N8N_ENCRYPTION_KEY=/{print "N8N_ENCRYPTION_KEY=" t3; next}
+            {print}
+          ' .env.local > .env.local.tmp
+          mv .env.local.tmp .env.local
+
+      - name: Show Tool Versions
+        run: |
+          node -v
+          npm -v
+          docker --version
+          docker compose version
+
+      - name: Validate Agent Config
+        run: npm run verify:config
+
+      - name: Validate UI Structure
+        run: npm run verify:ui-structure
+
+      - name: Validate UI Inline Style Budget
+        run: npm run verify:ui-inline-style
+
+      - name: Proxy Regression Tests
+        run: npm run test:proxy
+
+      - name: Runtime Smoke Verification
+        run: npm run verify:smoke
+
+      - name: Collect Runtime Logs
+        if: always()
+        run: |
+          docker compose ps -a || true
+          docker compose logs --tail=200 || true

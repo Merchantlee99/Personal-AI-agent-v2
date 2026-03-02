@@ -1,0 +1,154 @@
+{
+  "name": "Hermes Daily Briefing Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hermes-daily-briefing",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "Webhook_Hermes",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        320
+      ],
+      "webhookId": "hermes-daily-briefing"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\nconst query = (body.query ?? '한국 AI 트렌드').toString();\nconst collectedAt = (body.collected_at ?? new Date().toISOString()).toString();\n\nconst sourceItems = Array.isArray(body.results) ? body.results : (Array.isArray(body.items) ? body.items : []);\nconst normalizedItems = sourceItems\n  .map((entry, index) => {\n    const title = (entry?.title ?? `untitled-${index + 1}`).toString().trim();\n    const url = (entry?.url ?? '').toString().trim();\n    const snippet = (entry?.snippet ?? '').toString().trim();\n    let bucket = (entry?.bucket ?? '').toString().trim().toUpperCase();\n    if (!['HOT', 'INSIGHT', 'MONITOR'].includes(bucket)) {\n      const lowered = `${title} ${snippet}`.toLowerCase();\n      if (lowered.includes('launch') || lowered.includes('release') || lowered.includes('breaking') || lowered.includes('급등')) {\n        bucket = 'HOT';\n      } else if (lowered.includes('analysis') || lowered.includes('report') || lowered.includes('전망') || lowered.includes('인사이트')) {\n        bucket = 'INSIGHT';\n      } else {\n        bucket = 'MONITOR';\n      }\n    }\n    return {\n      title,\n      url,\n      snippet,\n      bucket,\n    };\n  })\n  .slice(0, 30);\n\nreturn [\n  {\n    json: {\n      query,\n      collected_at: collectedAt,\n      items: normalizedItems,\n    },\n  },\n];"
+      },
+      "id": "Code_Normalize",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst query = data.query ?? '한국 AI 트렌드';\nconst collectedAt = data.collected_at ?? new Date().toISOString();\nconst items = Array.isArray(data.items) ? data.items : [];\n\nconst buckets = {\n  HOT: [],\n  INSIGHT: [],\n  MONITOR: [],\n};\nfor (const item of items) {\n  const key = ['HOT', 'INSIGHT', 'MONITOR'].includes(item.bucket) ? item.bucket : 'MONITOR';\n  buckets[key].push(item);\n}\n\nconst toLines = (bucketItems) => {\n  if (!bucketItems.length) {\n    return ['- 없음'];\n  }\n  return bucketItems.map((item, index) => {\n    const title = item.title || `Item ${index + 1}`;\n    const url = item.url ? ` (${item.url})` : '';\n    const snippet = item.snippet ? `\\n  - 요약: ${item.snippet}` : '';\n    return `- ${title}${url}${snippet}`;\n  });\n};\n\nconst markdown = [\n  '# Hermes Daily Briefing',\n  '',\n  `- generated_at: ${new Date().toISOString()}`,\n  `- collected_at: ${collectedAt}`,\n  `- query: ${query}`,\n  '',\n  '## HOT',\n  ...toLines(buckets.HOT),\n  '',\n  '## INSIGHT',\n  ...toLines(buckets.INSIGHT),\n  '',\n  '## MONITOR',\n  ...toLines(buckets.MONITOR),\n  '',\n  '## 액션 제안',\n  '- Minerva: HOT 항목 우선순위 반영 검토',\n  '- Clio: INSIGHT 항목 문서화/지식베이스 반영',\n].join('\\n');\n\nconst summary = {\n  total: items.length,\n  hot: buckets.HOT.length,\n  insight: buckets.INSIGHT.length,\n  monitor: buckets.MONITOR.length,\n};\n\nreturn [\n  {\n    json: {\n      query,\n      collected_at: collectedAt,\n      generated_at: new Date().toISOString(),\n      items,\n      has_items: items.length > 0,\n      bucket_counts: summary,\n      briefing_markdown: markdown,\n      summary: `total=${summary.total}, hot=${summary.hot}, insight=${summary.insight}, monitor=${summary.monitor}`,\n    },\n  },\n];"
+      },
+      "id": "Code_Template",
+      "name": "Build Briefing Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const current = $input.first()?.json ?? {};\nconst staticData = $getWorkflowStaticData('global');\n\nconst makeFingerprint = (value) => {\n  const str = String(value ?? '');\n  let hash = 0;\n  for (let i = 0; i < str.length; i += 1) {\n    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;\n  }\n  return hash.toString(16);\n};\n\nconst dateKey = new Date().toISOString().slice(0, 10);\nconst fingerprintSource = `${current.query}\\n${(current.items ?? []).map((item) => `${item.title}|${item.url}|${item.snippet}`).join('\\n')}`;\nconst fingerprint = makeFingerprint(fingerprintSource);\n\nconst hasItems = Boolean(current.has_items);\nconst duplicate = hasItems && staticData.last_fingerprint === fingerprint && staticData.last_date === dateKey;\n\nlet skipped = false;\nlet skipReason = null;\n\nif (!hasItems) {\n  skipped = true;\n  skipReason = 'no_results';\n} else if (duplicate) {\n  skipped = true;\n  skipReason = 'duplicate_briefing';\n} else {\n  staticData.last_fingerprint = fingerprint;\n  staticData.last_date = dateKey;\n  staticData.last_generated_at = new Date().toISOString();\n}\n\nreturn [\n  {\n    json: {\n      ...current,\n      fingerprint,\n      skipped,\n      skip_reason: skipReason,\n      duplicate,\n    },\n  },\n];"
+      },
+      "id": "Code_Dedup",
+      "name": "Dedup Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $input.first()?.json ?? {};\n\nreturn [\n  {\n    json: {\n      ok: true,\n      source: 'n8n-local',\n      workflow: 'hermes-daily-briefing',\n      skipped: Boolean(data.skipped),\n      reason: data.skip_reason ?? null,\n      duplicate: Boolean(data.duplicate),\n      fingerprint: data.fingerprint ?? null,\n      summary: data.summary ?? null,\n      bucket_counts: data.bucket_counts ?? { total: 0, hot: 0, insight: 0, monitor: 0 },\n      briefing_markdown: data.skipped ? null : (data.briefing_markdown ?? null),\n      generated_at: data.generated_at ?? new Date().toISOString(),\n      collected_at: data.collected_at ?? null,\n    },\n  },\n];"
+      },
+      "id": "Code_Response",
+      "name": "Build API Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "Respond_Hermes",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1500,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build Briefing Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Briefing Template": {
+      "main": [
+        [
+          {
+            "node": "Dedup Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Guard": {
+      "main": [
+        [
+          {
+            "node": "Build API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build API Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
