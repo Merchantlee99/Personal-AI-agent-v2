@@ -6,7 +6,13 @@ BRANCH="${GITHUB_BRANCH:-main}"
 TOKEN_RAW="${GITHUB_TOKEN:-}"
 TOKEN="$(printf '%s' "$TOKEN_RAW" | tr -d '\r\n')"
 CHECK_CONTEXT="${GITHUB_REQUIRED_CHECK:-runtime-verification}"
+PROFILE_RAW="${PROTECTION_PROFILE:-strict}"
+PROFILE="$(printf '%s' "$PROFILE_RAW" | tr '[:upper:]' '[:lower:]')"
+APPROVALS_OVERRIDE="${GITHUB_REQUIRED_APPROVALS:-}"
 API_BASE="https://api.github.com"
+REPO_OWNER="${REPO%%/*}"
+AUTH_LOGIN=""
+REQUIRED_APPROVALS=""
 tmp_response="$(mktemp)"
 
 cleanup() {
@@ -31,6 +37,38 @@ print_status_hint() {
       ;;
     404)
       echo "[branch-protection] hint: 저장소/브랜치 값이 잘못되었거나 토큰 접근 권한이 부족할 수 있습니다." >&2
+      ;;
+  esac
+}
+
+resolve_required_approvals() {
+  if [[ -n "$APPROVALS_OVERRIDE" ]]; then
+    if [[ ! "$APPROVALS_OVERRIDE" =~ ^[0-9]+$ ]]; then
+      echo "[branch-protection] invalid GITHUB_REQUIRED_APPROVALS=${APPROVALS_OVERRIDE} (must be integer)" >&2
+      exit 1
+    fi
+    REQUIRED_APPROVALS="$APPROVALS_OVERRIDE"
+    return
+  fi
+
+  case "$PROFILE" in
+    strict | team | default)
+      REQUIRED_APPROVALS=1
+      ;;
+    solo | single | single-operator | one-person | oneperson | 1p)
+      REQUIRED_APPROVALS=0
+      ;;
+    auto)
+      if [[ "${AUTH_LOGIN,,}" == "${REPO_OWNER,,}" ]]; then
+        REQUIRED_APPROVALS=0
+      else
+        REQUIRED_APPROVALS=1
+      fi
+      ;;
+    *)
+      echo "[branch-protection] invalid PROTECTION_PROFILE=${PROFILE_RAW}" >&2
+      echo "[branch-protection] allowed profiles: strict, solo, auto" >&2
+      exit 1
       ;;
   esac
 }
@@ -63,14 +101,20 @@ if [[ "$http_status" != "200" ]]; then
   print_status_hint "$http_status"
   exit 1
 fi
-python3 - <<'PY' "$tmp_response"
+AUTH_LOGIN="$(python3 - <<'PY' "$tmp_response"
 import json
 import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print(f"[branch-protection] authenticated_as={payload.get('login')}")
+print(payload.get("login") or "")
 PY
+)"
+if [[ -z "$AUTH_LOGIN" ]]; then
+  echo "[branch-protection] failed preflight(user): empty login" >&2
+  exit 1
+fi
+echo "[branch-protection] authenticated_as=${AUTH_LOGIN}"
 
 echo "[branch-protection] preflight: checking repository access"
 http_status="$(
@@ -108,6 +152,9 @@ if [[ "$repo_admin_check_rc" != "0" ]]; then
   echo "[branch-protection] failed parsing repository permission payload" >&2
   exit 1
 fi
+
+resolve_required_approvals
+echo "[branch-protection] profile=${PROFILE} required_approvals=${REQUIRED_APPROVALS}"
 
 echo "[branch-protection] preflight: checking branch existence"
 http_status="$(
@@ -168,7 +215,7 @@ http_status="$(
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
     "require_code_owner_reviews": false,
-    "required_approving_review_count": 1
+    "required_approving_review_count": ${REQUIRED_APPROVALS}
   },
   "restrictions": null,
   "required_linear_history": true,
