@@ -1,0 +1,101 @@
+services:
+  llm-proxy:
+    build:
+      context: ./proxy
+    container_name: nanoclaw-llm-proxy
+    env_file:
+      - .env.local
+    environment:
+      AGENT_CONFIG_PATH: /app/config/agents.json
+      LLM_USAGE_STORE_PATH: /app/shared_logs/llm_usage_metrics.json
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./shared_data/logs:/app/shared_logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - internal
+      - external
+
+  nanoclaw-agent:
+    build:
+      context: ./agent
+    container_name: nanoclaw-agent
+    depends_on:
+      - llm-proxy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      AGENT_CONFIG_PATH: /app/config/agents.json
+      SHARED_ROOT: /app/shared_data
+      INBOX_DIR: inbox
+      OUTBOX_DIR: outbox
+      ARCHIVE_DIR: archive
+      VAULT_DIR: obsidian_vault
+    volumes:
+      - ./shared_data:/app/shared_data
+      - ./config:/app/config:ro
+    networks:
+      - internal
+
+  n8n:
+    image: n8nio/n8n:1.95.3
+    container_name: nanoclaw-n8n
+    env_file:
+      - .env.local
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+      - /home/node/.cache:rw,nosuid,size=128m,uid=1000,gid=1000,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./shared_data:/data/shared_data
+    ports:
+      - "5678:5678"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:5678/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - internal
+      - external
+
+networks:
+  internal:
+    internal: true
+  external:
+    driver: bridge
+
+volumes:
+  n8n_data:

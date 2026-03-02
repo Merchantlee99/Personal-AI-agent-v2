@@ -1,0 +1,41 @@
+{
+  "name": "nanoclaw-v2",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "verify:config": "bash scripts/verify/validate-agent-config.sh",
+    "verify:ui-structure": "bash scripts/verify/check-ui-structure.sh",
+    "verify:ui-inline-style": "bash scripts/verify/check-inline-style-budget.sh",
+    "verify:smoke": "bash scripts/verify/smoke-runtime.sh",
+    "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
+    "test:proxy": "bash scripts/tests/run-proxy-tests.sh",
+    "n8n:bootstrap": "bash scripts/n8n/bootstrap-local-webhook.sh",
+    "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",
+    "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh",
+    "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@react-three/postprocessing": "^3.0.4",
+    "framer-motion": "^12.34.3",
+    "next": "^15.5.12",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "three": "^0.183.2",
+    "three-stdlib": "^2.36.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.16",
+    "typescript": "5.7.2"
+  }
+}
