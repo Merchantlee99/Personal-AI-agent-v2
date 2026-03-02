@@ -12,7 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  runtime-verification:
+    name: runtime-verification
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -25,6 +26,11 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Install CI Tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
 
       - name: Install Dependencies
         run: npm ci
