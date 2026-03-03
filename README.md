@@ -8,39 +8,48 @@ NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 에이전트를 역할 분리해
 - 외부 수집 결과 Zero-Trust: 명령이 아닌 데이터로만 처리
 - 최소 권한 런타임: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`
 
-## 한눈에 보기
+## 30초 구조
 ```mermaid
 flowchart LR
   U[User] --> FE[Next.js UI/API]
   FE --> PX[llm-proxy]
-  PX --> LLM[LLM Providers]
+  PX --> LLM[Gemini / Anthropic]
 
   N8N[n8n schedule/webhook] --> ORCH[/api/orchestration/events]
   ORCH --> TG[Telegram]
   TG --> TGC[/api/telegram/webhook]
   TGC --> INBOX[shared_data/inbox]
   INBOX --> AG[nanoclaw-agent]
-  AG --> VAULT[obsidian_vault / outbox / verified_inbox]
+  AG --> ARTIFACTS[obsidian_vault / outbox / verified_inbox]
 ```
 
-## 빠른 시작
+## 바로 실행
 ```bash
 docker compose build
 docker compose up -d
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
-엔드포인트
-- Frontend: `http://127.0.0.1:3000`
-- llm-proxy health: `http://127.0.0.1:8001/health`
-- n8n: `http://127.0.0.1:5678`
+## 문서 읽는 순서
 
-## 문서 지도
-- 구조를 이해하려면: `docs/ARCHITECTURE.md`
-- 보안을 점검하려면: `docs/SECURITY_BASELINE.md`
-- 운영 절차를 실행하려면: `docs/OPERATIONS_PLAYBOOK.md`
-- 실제 사용 시나리오를 보려면: `docs/USE_CASES.md`
-- Hermes 수집 우선순위/텔레그램 포맷: `docs/HERMES_SOURCE_PRIORITY.md`
+| 문서 | 이 문서가 답하는 질문 | 포함 | 제외 |
+|---|---|---|---|
+| `docs/ARCHITECTURE.md` | 시스템이 어떻게 연결되는가? | 컴포넌트, 데이터 플로우, 경계 | 장애 대응 절차, 운영 커맨드 |
+| `docs/SECURITY_BASELINE.md` | 무엇을 어떻게 막는가? | 위협-통제 매핑, 검증 체인 | 서비스 기동 순서 |
+| `docs/OPERATIONS_PLAYBOOK.md` | 오늘 바로 어떻게 운영하는가? | Day-1/Day-2 절차, 트러블슈팅 | 내부 설계 배경 |
+| `docs/USE_CASES.md` | 사용자가 어떤 결과를 받는가? | 시나리오별 입력/출력/산출물 | 전체 시스템 상세 구조 |
+| `docs/HERMES_SOURCE_PRIORITY.md` | Hermes는 무엇을 어떤 우선순위로 수집하는가? | P0/P1/P2 소스·포맷 정책 | 보안 전 범위 |
+
+## 현재 운영 최소 조건
+
+아래 3개가 살아 있어야 실사용이 됩니다.
+1. 컨테이너: `nanoclaw-agent`, `nanoclaw-llm-proxy`, `nanoclaw-n8n`
+2. 프론트 서버: `npm run dev` (`127.0.0.1:3000`)
+3. (외부 Telegram webhook 사용 시) 공개 HTTPS 터널 1개
+
+참고
+- 컨테이너는 `docker compose up -d`로 띄우면 터미널 종료 후에도 유지됩니다.
+- `npm run dev`는 터미널 프로세스라 종료 시 함께 내려갑니다.
 
 ## 최신 반영 포인트
 - Telegram 인라인 버튼

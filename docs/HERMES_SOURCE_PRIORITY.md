@@ -1,6 +1,7 @@
 # Hermes Source Priority (n8n Schedule)
 
 Hermes 스케줄 수집은 아래 기준으로 우선순위를 둔다.
+이 문서는 Hermes 수집/브리핑 정책만 다루며, 전체 보안 통제는 `SECURITY_BASELINE.md`를 따른다.
 
 ## 1) Priority Tiers
 
