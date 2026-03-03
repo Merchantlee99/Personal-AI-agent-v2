@@ -1,5 +1,16 @@
 # NanoClaw v2 Operations Playbook
 
+## 0. 운영 흐름 요약 (Mermaid)
+```mermaid
+flowchart LR
+  B["docker compose up"] --> H["/health 확인"]
+  H --> C["/api/chat 왕복"]
+  C --> N["n8n webhook/schedule 검증"]
+  N --> O["orchestration + telegram inline 검증"]
+  O --> A["agent watchdog + vault/outbox/verified 확인"]
+  A --> S["security hardening 체크"]
+```
+
 ## 1. 사전 준비
 1. `.env.local.example`를 복사해 `.env.local` 생성
 2. `INTERNAL_API_TOKEN`, `INTERNAL_SIGNING_SECRET`, `N8N_ENCRYPTION_KEY`를 강한 값으로 교체
@@ -10,10 +21,31 @@
     - `INTERNAL_NONCE_MAX_ENTRIES`
 3. 루트 경로에서 Docker/Node 설치 상태 확인
 4. 에이전트 ID/role 변경 시 `config/agents.json`만 수정
-5. 실제 모델 호출 사용 시 `.env.local`에 `LLM_PROVIDER=gemini`와 `GEMINI_API_KEY`(또는 `GOOGLE_API_KEY`) 설정
+5. 실제 모델 호출 사용 시 `.env.local` 설정
+  - Gemini: `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`(또는 `GOOGLE_API_KEY`)
+  - Sonnet 확장: `LLM_PROVIDER=anthropic` 또는 `auto` + `ANTHROPIC_API_KEY`
+  - 모델 라우팅은 `MODEL_MINERVA/CLIO/HERMES`로 제어(예: `MODEL_MINERVA=claude-sonnet-4-6`)
 6. Telegram orchestration 사용 시 `.env.local`에 아래 항목 설정
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET`
+  - `TELEGRAM_WEBHOOK_PUBLIC_BASE` (`https://<public-domain-or-tunnel>`)
+  - allowlist: `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ALLOWED_CHAT_IDS`, `TELEGRAM_ALLOWED_CALLBACK_ACTIONS`
   - 정책값: `MINERVA_IMMEDIATE_MIN_PRIORITY`, `MINERVA_IMMEDIATE_MIN_CONFIDENCE`, `MINERVA_TOPIC_COOLDOWN_HOURS`, `MINERVA_DIGEST_SLOTS`
+  - Minerva morning 캘린더 브리핑: `MINERVA_MORNING_INCLUDE_CALENDAR`, `MINERVA_BRIEFING_TIMEZONE`
+7. Google Calendar read-only 사용 시 `.env.local`에 아래 항목 설정
+  - `GOOGLE_CALENDAR_ENABLED=true`
+  - `GOOGLE_CALENDAR_OAUTH_CLIENT_ID`, `GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET`, `GOOGLE_CALENDAR_OAUTH_REDIRECT_URI`
+  - `GOOGLE_CALENDAR_OAUTH_SCOPES`는 기본값(`calendar.readonly`) 유지 권장
+8. Hermes 고임팩트 auto-save 사용 시 `.env.local` 설정
+  - `HERMES_AUTO_CLIO_SAVE=true`
+  - `HERMES_AUTO_CLIO_SAVE_MIN_IMPACT=0.75` (0~1)
+  - `HERMES_DEEP_DIVE_AUTO_MINERVA=true` (Hermes deep-dive 완료 후 Minerva 후속 분석 태스크 자동 생성)
+9. Hermes 웹수집 provider 설정
+  - `HERMES_SEARCH_PROVIDER=auto|tavily|hn`
+  - Tavily 사용 시: `TAVILY_API_KEY`, `TAVILY_API_BASE`, `TAVILY_SEARCH_DEPTH`
+10. Clio NotebookLM webhook 동기화(선택)
+  - `NOTEBOOKLM_SYNC_ENABLED=true`
+  - `NOTEBOOKLM_INGEST_WEBHOOK_URL`
+  - `NOTEBOOKLM_API_KEY`(필요 시)
 
 ## 2. 기동 절차
 1. `docker compose build`
@@ -31,6 +63,8 @@
 - `N8N_ENCRYPTION_KEY`를 교체하면 기존 `n8n_data`의 설정 키와 불일치가 날 수 있다.
 - 이 경우 기존 n8n 볼륨의 워크플로가 보존되지 않으므로 bootstrap을 재실행해야 한다.
 - 워크플로 JSON 변경을 강제로 반영하려면 `N8N_BOOTSTRAP_FORCE_IMPORT=true`를 사용한다.
+  - 기본값으로 중복 누적 방지를 위해 기존 workflow가 있으면 재사용한다.
+  - 중복 import를 의도적으로 허용하려면 `N8N_BOOTSTRAP_ALLOW_DUPLICATE_IMPORT=true`를 함께 설정한다(비권장).
 - `n8n` 포트는 기본 `127.0.0.1:5678` 로컬 바인딩이다.
 - n8n v1+에서는 `N8N_BASIC_AUTH_*`가 공식적으로 제거되었으므로 외부 공개 시 ingress/reverse-proxy 인증을 추가한다.
 - 중복 워크플로가 생기면 `npm run n8n:cleanup`으로 단일 활성 상태를 강제한다.
@@ -46,11 +80,33 @@
 3. 성공 기준:
   - 1차 호출: `skipped=false`, `briefing_markdown` 포함
   - 2차 동일 호출: `skipped=true`, `reason=duplicate_briefing`
-4. 기본 정책: 기존 Hermes workflow 재사용(중복 누적 방지)
+  - `orchestration.attempted=true`이고 status `200` 확인
+  - `briefing_markdown`의 `## Safety` 섹션에서 필터 통계 확인
+4. 스케줄 트리거:
+  - `Schedule Morning (KST 09:00)` / `Schedule Evening (KST 18:00)` 노드가 workflow JSON에 존재해야 함
+  - 컨테이너 UTC 기준으로 `cron(0 0 * * *)` / `cron(0 9 * * *)` 사용
+5. 기본 정책: 기존 Hermes workflow 재사용(중복 누적 방지)
   - workflow JSON 변경을 강제로 반영할 때만 `N8N_HERMES_FORCE_IMPORT=true bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`
-5. Minerva 오케스트레이션 연동 검증(선택)
+6. Minerva 오케스트레이션 직접 연동 검증(권장)
+  - `.env.local`에 `ORCHESTRATION_EVENT_URL=http://host.docker.internal:3000/api/orchestration/events`
+  - `HERMES_EXPECT_ORCHESTRATION=true bash scripts/n8n/test-hermes-daily-briefing-workflow.sh`
+  - 성공 기준: `shared_data/shared_memory/agent_events.json` 이벤트 카운트 증가
+7. 레거시 fallback 검증(선택)
   - `HERMES_DISPATCH_TO_MINERVA=true FRONTEND_PORT=3000 bash scripts/n8n/test-hermes-daily-briefing-workflow.sh`
-  - 내부적으로 `scripts/n8n/dispatch-hermes-briefing-to-minerva.sh`를 통해 `/api/orchestration/events`로 이벤트 publish
+  - 내부적으로 `scripts/n8n/dispatch-hermes-briefing-to-minerva.sh`를 통해 별도 publish
+
+### Hermes 웹서핑(Tavily Webhook) 워크플로 검증
+`n8n/workflows/hermes-web-search-tavily.json`를 기준으로 웹훅 검색 경로의 필터/응답 계약을 검증한다.
+
+1. `bash scripts/n8n/bootstrap-hermes-web-search.sh`
+2. `bash scripts/n8n/test-hermes-web-search-workflow.sh`
+3. 성공 기준:
+  - `workflow=hermes-web-search`
+  - `data_contract=inert_search_records_only`
+  - `security_stats.prompt_like_removed >= 1` (공격성 query 입력 기준)
+  - 코드 레벨 검사에서 `INJECTION_PATTERNS`, `isSafeUrl`, `TAVILY_API_KEY` 참조 확인
+4. 기본 정책:
+  - workflow JSON 강제 반영 시 `N8N_HERMES_SEARCH_FORCE_IMPORT=true bash scripts/n8n/bootstrap-hermes-web-search.sh`
 
 ## 3. 런타임 검증
 1. llm-proxy health
@@ -90,8 +146,40 @@
 - `POST /api/telegram/webhook` (Telegram callback update 형식)
 - 액션별 기대 결과:
   - `clio_save:event_id` -> `shared_data/inbox`에 clio task 생성
-  - `hermes_deep_dive:event_id` -> `shared_data/inbox`에 hermes deep-dive task 생성
-  - `mute_topic:event_id` -> `shared_data/shared_memory/topic_cooldowns.json` 갱신
+  - `hermes_deep_dive:event_id` -> `shared_data/inbox`에 hermes deep-dive task 생성(근거 수집 전용)
+  - Hermes deep-dive 처리 후 `HERMES_DEEP_DIVE_AUTO_MINERVA=true`면 minerva follow-up task 자동 생성
+  - `minerva_insight:event_id` -> `shared_data/inbox`에 minerva insight task 생성
+  - `TELEGRAM_WEBHOOK_SECRET`/allowlist 활성 시 secret header와 callback source(from/chat) 일치 필요
+
+6-1. Telegram 인라인 3버튼 로컬 리허설(권장 선행)
+- `npm run verify:telegram:inline`
+- 검증 범위: `clio_save`, `hermes_deep_dive`, `minerva_insight` 3개 액션 전체
+- 성공 기준:
+  - callback 응답 `ok=true`
+  - inbox 파일 3건 이상 증가(clio/hermes/minerva)
+
+6-2. Telegram 실운영 리허설(외부 webhook)
+- 연결 시점: 로컬 검증(6-1) 통과 후, 공개 URL 준비가 끝난 시점
+- webhook 등록:
+  - `npm run telegram:webhook:set`
+  - `npm run telegram:webhook:info`
+- 실제 메시지 발송:
+  - `npm run telegram:rehearsal:send`
+- 운영 체크:
+  - Telegram 채팅에서 인라인 버튼 클릭
+  - `shared_data/inbox/*.json` side-effect 확인
+
+7. Google Calendar read-only OAuth 확인
+1. `GET /api/integrations/google-calendar/oauth/start?mode=redirect`
+2. Google consent 완료 후 callback 응답에서 `connected=true` 확인
+3. `GET /api/integrations/google-calendar/today`로 당일 일정 조회
+
+8. Clio 파이프라인 E2E 확인
+- `npm run verify:clio-e2e`
+- 성공 기준:
+  - `/api/orchestration/events` 응답에 `autoClio.created=true`
+  - `shared_data/verified_inbox` 파일 증가
+  - verified payload에 `tags`, `source_urls`, `deepl`, `notebooklm.ready` 필드 존재
 
 ### 통합 스모크 검증(권장)
 - `npm run verify:smoke`
@@ -110,6 +198,14 @@
   - 이벤트 수집(`/api/orchestration/events`)
   - Telegram callback 액션(`/api/telegram/webhook`)
   - `clio_save` 액션의 inbox task 생성
+
+### 오케스트레이션 보안 하드닝 점검
+- `npm run security:check-orchestration`
+- 점검 항목:
+  - Google Calendar readonly scope 고정
+  - Hermes high-impact auto-save 정책 활성 여부
+  - Telegram secret/allowlist/action allowlist 최소 조건
+  - Orchestration URL 설정 및 컨테이너 최소권한 옵션
 
 ### 회귀 테스트
 - `npm run test:proxy`

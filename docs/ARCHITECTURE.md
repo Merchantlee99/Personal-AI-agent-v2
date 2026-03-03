@@ -1,67 +1,171 @@
 # NanoClaw v2 Architecture
 
-## 1. 목표 구조
-NanoClaw v2는 Canonical Agent ID(`minerva`, `clio`, `hermes`)를 기준으로 책임을 분리하고,
-프론트엔드 요청을 `llm-proxy` 단일 게이트로 통과시킨 뒤 내부 워커(`nanoclaw-agent`)와 n8n 자동화를 결합하는 구조다.
+기준 시점: 2026-03-03  
+핵심: `minerva` / `clio` / `hermes` 3개 canonical ID, `llm-proxy` 단일 게이트, 내부 검증(HMAC), 최소 권한 컨테이너.
 
-## 2. 서비스 구성
-1. Next.js App Router
-- UI: 3-agent 탭 전환 + 에이전트별 히스토리 분리
-- API: `/api/chat`는 직접 모델 호출 없이 `llm-proxy /api/agent`로 프록시
+## 1. 역할 경계
+- `minerva`: 오케스트레이션, 우선순위 판단, 최종 인사이트 정리
+- `clio`: 문서화, 지식 정리, Obsidian/NotebookLM 준비
+- `hermes`: 웹 수집, 트렌드 브리핑, 근거 확장 수집
 
-2. llm-proxy (FastAPI)
-- `/api/agent`: 에이전트 라우팅 및 모델 선택
-- `/api/agents`: canonical id 맵 조회(alias 비활성)
-- `/api/search`: 외부 검색 결과를 비실행 데이터 레코드로 반환
-- `/health`: 헬스 체크
+```mermaid
+flowchart TD
+  CFG["config/agents.json (single source)"] --> M["minerva"]
+  CFG --> C["clio"]
+  CFG --> H["hermes"]
+  M --> MR["orchestration / decision"]
+  C --> CR["knowledge / documentation"]
+  H --> HR["web signals / briefing"]
+```
 
-2.5. Orchestration API (Next.js Route Handlers)
-- `/api/orchestration/events`
-  - Hermes/Clio 이벤트를 Minerva 정책 엔진으로 수집
-  - 즉시/다이제스트/쿨다운 판정 후 Telegram 발송 또는 digest 큐 적재
-- `/api/telegram/webhook`
-  - Telegram callback action 처리
-  - `clio_save`, `hermes_deep_dive`, `mute_topic`을 inbox/cooldown과 연결
-  - Inline Keyboard를 통한 사용자 의도(저장/심층/억제)를 안전하게 작업 큐로 전환
+## 2. 전체 시스템 토폴로지
 
-3. nanoclaw-agent (watchdog)
-- `shared_data/inbox` 파일 생성 이벤트 감시
-- canonical id 검증 + unknown fallback(minerva)
-- 결과를 `shared_data/obsidian_vault` 마크다운으로 기록
-- 메타데이터를 `shared_data/outbox`로 출력
-- Clio 라우팅 시 `shared_data/verified_inbox`에 NotebookLM 준비 JSON(태그/링크/요약) 동시 생성
+```mermaid
+flowchart LR
+  U["User"] --> FE["Next.js UI"]
+  FE --> CHAT["POST /api/chat"]
+  CHAT --> PROXY["llm-proxy /api/agent"]
 
-4. n8n
-- webhook 및 스케줄 자동화 허브
-- 외부 수집/브리핑 워크플로의 실행 경계
+  PROXY --> LLMG["Gemini API"]
+  PROXY --> LLMA["Anthropic API"]
+  PROXY --> SEARCH["/api/search (inert data only)"]
 
-## 3. ID/역할 규칙
-- 단일 정의 파일: `config/agents.json`
-  - frontend(`src/lib/agents.ts`), llm-proxy(`proxy/app/agents.py`), nanoclaw-agent(`agent/main.py`)가 공통 참조
-- Canonical ID: `minerva`, `clio`, `hermes`만 런타임 라우팅 키로 사용
-- Alias 비활성: 구 ID(`ace`,`owl`,`dolphin`)는 허용하지 않음
-- 역할 경계:
-  - Minerva: 오케스트레이션/우선순위/결정
-  - Clio: 문서화/지식정리/NotebookLM 준비
-  - Hermes: 웹수집/트렌드/브리핑
+  N8N["n8n (schedule + webhook)"] --> ORCH["POST /api/orchestration/events"]
+  ORCH --> TG["Telegram sendMessage + inline keyboard"]
+  TG --> TGCB["POST /api/telegram/webhook"]
+  TGCB --> INBOX["shared_data/inbox/*.json"]
 
-## 4. 데이터 경로
-1. 사용자 -> Next.js `/api/chat`
-2. `/api/chat` -> 서명/HMAC 헤더 첨부 -> `llm-proxy /api/agent`
-3. `llm-proxy`가 canonical ID로 라우팅 후 응답 반환
-4. 파일 기반 작업은 `shared_data/inbox` -> `nanoclaw-agent` -> `obsidian_vault/outbox/archive`
-5. Clio 문서 파이프라인은 `shared_data/inbox` -> `nanoclaw-agent` -> `verified_inbox`로 태그/링크 자동화 산출물을 전달
+  INBOX --> AGENT["nanoclaw-agent (watchdog + poll)"]
+  AGENT --> OUTBOX["shared_data/outbox"]
+  AGENT --> VAULT["shared_data/obsidian_vault"]
+  AGENT --> VERIFIED["shared_data/verified_inbox (Clio)"]
+  AGENT --> ARCHIVE["shared_data/archive"]
+```
 
-## 5. shared_data 기본 디렉토리
-- `inbox/`
-- `outbox/`
-- `archive/`
-- `logs/`
-- `verified_inbox/`
-- `obsidian_vault/`
-- `shared_memory/`
-  - `agent_events.json`
-  - `topic_cooldowns.json`
-  - `digest_queue.json`
-- `queue/`
-- `workflows/` (n8n import source for local bootstrap)
+## 3. Chat 경로 (Frontend -> llm-proxy)
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant FE as Next.js /api/chat
+  participant PX as llm-proxy /api/agent
+  participant LLM as LLM Provider
+
+  User->>FE: agentId + message + history
+  FE->>FE: canonical id 검증, HMAC 헤더 생성
+  FE->>PX: x-internal-token + x-timestamp + x-nonce + x-signature
+  PX->>PX: token -> rate-limit -> timestamp -> signature -> nonce 저장
+  PX->>LLM: agent별 model routing + retry/fallback
+  LLM-->>PX: reply
+  PX-->>FE: agent_id, model, reply, role_boundary
+  FE-->>User: UI 응답 렌더링
+```
+
+## 4. Orchestration + Telegram 인라인 액션
+
+```mermaid
+sequenceDiagram
+  participant H as Hermes/n8n
+  participant O as /api/orchestration/events
+  participant T as Telegram
+  participant W as /api/telegram/webhook
+  participant I as shared_data/inbox
+  participant A as nanoclaw-agent
+
+  H->>O: 이벤트(topic/priority/confidence/sourceRefs)
+  O->>O: policy 평가(send_now/queue_digest/suppressed)
+  O->>T: Minerva 브리핑 + 인라인 버튼
+  T->>W: callback(action:event_id)
+  W->>W: webhook secret + user/chat allowlist + action allowlist 검증
+  W->>I: clio_save / hermes_deep_dive / minerva_insight task 생성
+  A->>I: task consume
+  A->>A: Markdown/JSON 처리 + 후속 task 생성(옵션)
+```
+
+현재 인라인 버튼 UX:
+- `Clio, 옵시디언에 저장해`
+- `Hermes, 더 찾아`
+- `Minerva, 인사이트 분석해`
+
+`Hermes, 더 찾아`는 근거 수집 전용으로 제한되며, `HERMES_DEEP_DIVE_AUTO_MINERVA=true`일 때 처리 완료 후 Minerva 후속 인사이트 태스크를 자동 생성한다.
+
+## 5. n8n 워크플로우 구조
+
+```mermaid
+flowchart TD
+  S1["Hermes Daily Briefing Workflow"] --> F1["입력 정규화 + 중복 억제"]
+  F1 --> F2["prompt-injection / unsafe-url 필터"]
+  F2 --> R1["브리핑 마크다운 생성"]
+  R1 --> O1["/api/orchestration/events 전송"]
+
+  S2["Hermes Web Search Workflow (Tavily)"] --> F3["query 정규화"]
+  F3 --> F4["prompt-like 제거 + 안전 URL만 유지"]
+  F4 --> R2["inert_search_records_only 결과"]
+```
+
+보안 원칙:
+- 검색/수집 결과는 실행하지 않고 구조화 데이터로만 하위 단계로 전달
+- `localhost`, 사설 IP, 스크립트/명령 유도 텍스트는 필터링
+
+## 6. Clio 파이프라인 구조
+
+```mermaid
+flowchart LR
+  IN["inbox(clio task)"] --> P["agent/main.py process_file"]
+  P --> M["obsidian_vault/*.md 생성"]
+  P --> V["verified_inbox/*.json 생성"]
+  V --> N["NotebookLM webhook(optional)"]
+  P --> O["outbox/*.json 처리 결과 기록"]
+```
+
+Clio 처리 시 포함 정보:
+- 태그 자동화(`#clio`, `#knowledge-pipeline` + 동적 태그)
+- 관련 링크/출처 URL
+- DeepL 번역 적용 여부
+- NotebookLM sync 준비 메타
+
+## 7. 데이터 경로
+
+```text
+shared_data/
+  inbox/                 # telegram/orchestration/n8n/수동 태스크 유입
+  outbox/                # 처리 결과 JSON
+  archive/               # 처리 완료 원본 inbox 보관
+  obsidian_vault/        # Markdown 지식 산출물
+  verified_inbox/        # Clio 정제 payload
+  shared_memory/         # 이벤트, digest, cooldown, oauth/token 상태
+  logs/                  # llm usage metrics
+```
+
+## 8. Docker/네트워크 경계
+
+```mermaid
+flowchart LR
+  subgraph INT["internal network (internal:true)"]
+    AG["nanoclaw-agent"]
+    PX["llm-proxy"]
+    N8["n8n"]
+  end
+  subgraph EXT["external network (bridge)"]
+    PXE["llm-proxy 외부 연동"]
+    N8E["n8n 외부 연동"]
+  end
+  AG --> INT
+  PX --> INT
+  N8 --> INT
+  PX --> PXE
+  N8 --> N8E
+```
+
+기본 하드닝:
+- `read_only: true`
+- `cap_drop: [ALL]`
+- `security_opt: [no-new-privileges:true]`
+- `tmpfs` 사용
+
+## 9. 이전 레포 대비 핵심 변화
+- alias 입력(`ace`, `owl`, `dolphin`) 제거, canonical only 고정
+- 역할별 책임 경계 명시 + Telegram 액션도 경계에 맞춰 분리
+- `llm-proxy`를 유일한 모델 호출 게이트로 고정
+- n8n 2개 워크플로우(스케줄 브리핑/웹검색)를 운영 스크립트와 검증 스크립트로 표준화
+- Clio 검증 파이프라인(`verified_inbox`)과 NotebookLM 준비 경로 추가
