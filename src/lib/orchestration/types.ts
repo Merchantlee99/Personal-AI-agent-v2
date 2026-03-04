@@ -8,8 +8,12 @@ export type JourneyTheme = "morning_briefing" | "evening_wrapup" | "adhoc";
 export type SourceRef = {
   title: string;
   url: string;
+  snippet?: string;
   publisher?: string;
   publishedAt?: string;
+  category?: string;
+  priorityTier?: "P0" | "P1" | "P2";
+  domain?: string;
 };
 
 export type AgentEventInput = {
@@ -47,13 +51,22 @@ export type DispatchOutcome = {
   cooldownUntil?: string;
 };
 
+export type MinervaCalendarBriefItem = {
+  timeLabel: string;
+  title: string;
+};
+
+export type MinervaCalendarBriefing = {
+  summary: string;
+  items: MinervaCalendarBriefItem[];
+};
+
 export type TelegramInlineButton = { text: string; callback_data: string };
 export type TelegramInlineKeyboard = { inline_keyboard: TelegramInlineButton[][] };
 
 export type TelegramDispatchPayload = {
   chat_id: string;
   text: string;
-  disable_web_page_preview: true;
-  reply_markup: TelegramInlineKeyboard;
+  disable_web_page_preview?: boolean;
+  reply_markup?: TelegramInlineKeyboard;
 };
-

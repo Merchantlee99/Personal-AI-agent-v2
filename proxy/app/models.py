@@ -11,6 +11,7 @@ class AgentRequest(BaseModel):
     agent_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
     history: list[HistoryMessage] = Field(default_factory=list)
+    memory_context: str | None = Field(default=None, max_length=4000)
     source: str = "web"
 
 
@@ -35,4 +36,6 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     treated_as_data: bool = True
+    provider: str = "mock"
+    filter_stats: dict[str, int] = Field(default_factory=dict)
     results: list[SearchResult]

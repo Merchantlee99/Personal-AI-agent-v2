@@ -1,7 +1,7 @@
 # NanoClaw v2 Architecture
 
 이 문서는 "시스템이 어떻게 구성되는가"만 설명합니다.
-운영 절차는 `OPERATIONS_PLAYBOOK.md`, 사용자 흐름은 `USE_CASES.md`를 봅니다.
+운영 절차는 [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md), 사용자 흐름은 [USE_CASES](USE_CASES.md)를 봅니다.
 
 ## 1) 역할 경계
 
@@ -18,39 +18,39 @@ Canonical ID는 `minerva`, `clio`, `hermes`만 허용합니다.
 ```mermaid
 flowchart LR
   subgraph Client
-    UI[Next.js Dashboard]
-    TGUSER[Telegram User]
+    UI["Next.js Dashboard"]
+    TGUSER["Telegram User"]
   end
 
   subgraph App
-    API[Next.js API Routes]
-    ORCH[/api/orchestration/events]
-    TGCB[/api/telegram/webhook]
+    API["Next.js API Routes"]
+    ORCH["/api/orchestration/events"]
+    TGCB["/api/telegram/webhook"]
   end
 
   subgraph Core
-    PX[llm-proxy]
-    AG[nanoclaw-agent]
+    PX["llm-proxy"]
+    AG["nanoclaw-agent"]
   end
 
   subgraph Automation
-    N8N[n8n workflows]
+    N8N["n8n workflows"]
   end
 
   subgraph Storage
-    INBOX[shared_data/inbox]
-    OUTBOX[shared_data/outbox]
-    VAULT[shared_data/obsidian_vault]
-    VERIFIED[shared_data/verified_inbox]
-    MEM[shared_data/shared_memory]
+    INBOX["shared_data/inbox"]
+    OUTBOX["shared_data/outbox"]
+    VAULT["shared_data/obsidian_vault"]
+    VERIFIED["shared_data/verified_inbox"]
+    MEM["shared_data/shared_memory"]
   end
 
   UI --> API
   API --> PX
-  PX --> LLM[Gemini / Anthropic]
+  PX --> LLM["Gemini / Anthropic"]
 
   N8N --> ORCH
-  ORCH --> TG[Telegram sendMessage]
+  ORCH --> TG["Telegram sendMessage"]
   TGUSER --> TGCB
   TGCB --> INBOX
 
