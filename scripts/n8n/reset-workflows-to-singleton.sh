@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+echo "[n8n-reset] prepare frontend runtime env"
+bash scripts/runtime/render-frontend-env.sh >/tmp/n8n_reset_frontend_env.log
+cat /tmp/n8n_reset_frontend_env.log
+
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="shared_data/workflows/backups/n8n-reset-${TIMESTAMP}"
 mkdir -p "$BACKUP_DIR"

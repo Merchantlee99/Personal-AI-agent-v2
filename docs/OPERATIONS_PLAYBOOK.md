@@ -25,6 +25,7 @@
 ## 2) Day-1 기동
 
 ```bash
+npm run runtime:prepare
 docker compose build
 docker compose up -d
 docker compose ps

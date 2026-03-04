@@ -80,6 +80,10 @@ echo "[smoke] ensure shared_data writable"
 mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
 chmod -R a+rwX shared_data || true
 
+echo "[smoke] prepare frontend runtime env"
+bash scripts/runtime/render-frontend-env.sh >/tmp/nanoclaw_frontend_env_smoke.log
+cat /tmp/nanoclaw_frontend_env_smoke.log
+
 echo "[smoke] docker services up"
 docker compose up -d frontend llm-proxy nanoclaw-agent n8n >/dev/null
 

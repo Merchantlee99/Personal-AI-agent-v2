@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT_DIR"
+
+SOURCE_ENV_FILE="${FRONTEND_ENV_SOURCE:-.env.local}"
+TARGET_ENV_FILE="${FRONTEND_ENV_TARGET:-shared_data/runtime/frontend.env}"
+
+if [[ ! -f "$SOURCE_ENV_FILE" ]]; then
+  echo "[runtime-env] source env file missing: $SOURCE_ENV_FILE" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$TARGET_ENV_FILE")"
+
+get_env_value() {
+  local key="$1"
+  local line
+  line="$(grep -E "^${key}=" "$SOURCE_ENV_FILE" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    printf ''
+    return 0
+  fi
+  printf '%s' "${line#*=}"
+}
+
+emit_key() {
+  local key="$1"
+  local value
+  value="$(get_env_value "$key")"
+  printf '%s=%s\n' "$key" "$value" >> "$TARGET_ENV_FILE"
+}
+
+require_non_empty() {
+  local key="$1"
+  local value
+  value="$(get_env_value "$key")"
+  if [[ -z "$value" ]]; then
+    echo "[runtime-env] missing required key in ${SOURCE_ENV_FILE}: ${key}" >&2
+    exit 1
+  fi
+}
+
+require_non_empty INTERNAL_API_TOKEN
+require_non_empty INTERNAL_SIGNING_SECRET
+
+cat >"$TARGET_ENV_FILE" <<'ENV'
+SHARED_ROOT_PATH=/app/shared_data
+LLM_PROXY_URL=http://llm-proxy:8000
+INTERNAL_APP_BASE_URL=http://frontend:3000
+NODE_ENV=production
+NEXT_TELEMETRY_DISABLED=1
+PORT=3000
+HOSTNAME=0.0.0.0
+ENV
+
+FRONTEND_ENV_KEYS=(
+  INTERNAL_API_TOKEN
+  INTERNAL_SIGNING_SECRET
+  CHAT_MEMORY_CONTEXT_ENABLED
+  CHAT_MEMORY_CONTEXT_AGENTS
+  CHAT_MEMORY_CONTEXT_MAX_CHARS
+  CHAT_MEMORY_CONTEXT_MAX_BLOCKS
+  CHAT_MEMORY_CONTEXT_MAX_ITEMS
+  MEMORY_MD_MAX_BYTES
+  AGENT_MEMORY_MD_MAX_BYTES
+  MEMORY_SKIP_TAGS
+  COMPACT_MEMORY_MAX_ENTRIES
+  HERMES_AUTO_CLIO_SAVE
+  HERMES_AUTO_CLIO_SAVE_MIN_IMPACT
+  MINERVA_IMMEDIATE_MIN_PRIORITY
+  MINERVA_IMMEDIATE_MIN_CONFIDENCE
+  MINERVA_TOPIC_COOLDOWN_HOURS
+  MINERVA_DIGEST_SLOTS
+  MINERVA_MORNING_INCLUDE_CALENDAR
+  MINERVA_BRIEFING_TIMEZONE
+  TELEGRAM_BOT_TOKEN
+  TELEGRAM_CHAT_ID
+  TELEGRAM_WEBHOOK_SECRET
+  TELEGRAM_ALLOWED_USER_IDS
+  TELEGRAM_ALLOWED_CHAT_IDS
+  TELEGRAM_ALLOWED_CALLBACK_ACTIONS
+  TELEGRAM_TEXT_RATE_LIMIT_WINDOW_SEC
+  TELEGRAM_TEXT_RATE_LIMIT_MAX
+  TELEGRAM_MINERVA_TIMEOUT_MS
+  TELEGRAM_MINERVA_RETRY_MAX
+  TELEGRAM_MINERVA_HISTORY_TURNS
+  GOOGLE_CALENDAR_ENABLED
+  GOOGLE_CALENDAR_READONLY
+  GOOGLE_CALENDAR_ID
+  GOOGLE_CALENDAR_OAUTH_CLIENT_ID
+  GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
+  GOOGLE_CALENDAR_OAUTH_REDIRECT_URI
+  GOOGLE_CALENDAR_OAUTH_SCOPES
+  GOOGLE_CALENDAR_TOKEN_PATH
+  GOOGLE_CALENDAR_STATE_PATH
+  DEEPL_API_KEY
+  DEEPL_TARGET_LANG
+  DEEPL_GLOSSARY_ID
+  NEXT_PUBLIC_APP_URL
+)
+
+for key in "${FRONTEND_ENV_KEYS[@]}"; do
+  emit_key "$key"
+done
+
+chmod 600 "$TARGET_ENV_FILE"
+echo "[runtime-env] wrote ${TARGET_ENV_FILE} (frontend minimal env)"

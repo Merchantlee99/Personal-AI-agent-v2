@@ -5,7 +5,7 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: nanoclaw-frontend
     env_file:
-      - .env.local
+      - ./shared_data/runtime/frontend.env
     depends_on:
       llm-proxy:
         condition: service_healthy

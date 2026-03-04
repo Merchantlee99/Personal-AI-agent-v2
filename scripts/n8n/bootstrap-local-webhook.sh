@@ -9,6 +9,7 @@ WORKFLOW_NAME="${N8N_BOOTSTRAP_WORKFLOW_NAME:-NanoClaw v2 Smoke Webhook}"
 WEBHOOK_PATH="${N8N_BOOTSTRAP_WEBHOOK_PATH:-nanoclaw-v2-smoke}"
 FORCE_IMPORT="${N8N_BOOTSTRAP_FORCE_IMPORT:-false}"
 ALLOW_DUPLICATE_IMPORT="${N8N_BOOTSTRAP_ALLOW_DUPLICATE_IMPORT:-false}"
+RESTART_MODE="${N8N_BOOTSTRAP_RESTART_MODE:-on-failure}"
 
 get_workflow_ids() {
   docker exec nanoclaw-n8n n8n list:workflow 2>/dev/null \
@@ -45,10 +46,34 @@ verify_n8n_timezone() {
   echo "[bootstrap] timezone ok (${expected})"
 }
 
+wait_for_webhook() {
+  local retries="${1:-5}"
+  local sleep_sec="${2:-2}"
+  local status
+  for i in $(seq 1 "$retries"); do
+    status="$(curl -s -o /tmp/n8n_bootstrap_webhook.json -w '%{http_code}' \
+      -X POST "http://localhost:5678/webhook/$WEBHOOK_PATH" \
+      -H 'content-type: application/json' \
+      -d '{"ping":"pong","source":"bootstrap-check"}' || true)"
+    if [[ "$status" == "200" ]]; then
+      echo "[bootstrap] webhook is ready (200)"
+      cat /tmp/n8n_bootstrap_webhook.json
+      return 0
+    fi
+    sleep "$sleep_sec"
+    echo "[bootstrap] retry $i -> status=$status"
+  done
+  return 1
+}
+
 if [[ ! -f "$WORKFLOW_FILE" ]]; then
   echo "[bootstrap] workflow file not found: $WORKFLOW_FILE" >&2
   exit 1
 fi
+
+echo "[bootstrap] prepare frontend runtime env"
+bash scripts/runtime/render-frontend-env.sh >/tmp/nanoclaw_frontend_env_bootstrap.log
+cat /tmp/nanoclaw_frontend_env_bootstrap.log
 
 echo "[bootstrap] ensuring n8n service is running"
 docker compose up -d n8n >/dev/null
@@ -132,23 +157,33 @@ docker exec nanoclaw-n8n n8n update:workflow --id="$workflow_id" --active=true >
   exit 1
 }
 
-echo "[bootstrap] restarting n8n for activation"
-docker compose restart n8n >/dev/null
-
-echo "[bootstrap] waiting for webhook to become available"
-for i in 1 2 3 4 5; do
-  status="$(curl -s -o /tmp/n8n_bootstrap_webhook.json -w '%{http_code}' \
-    -X POST "http://localhost:5678/webhook/$WEBHOOK_PATH" \
-    -H 'content-type: application/json' \
-    -d '{"ping":"pong","source":"bootstrap-check"}' || true)"
-  if [[ "$status" == "200" ]]; then
-    echo "[bootstrap] webhook is ready (200)"
-    cat /tmp/n8n_bootstrap_webhook.json
+if [[ "$RESTART_MODE" == "always" ]]; then
+  echo "[bootstrap] restarting n8n for activation (mode=always)"
+  docker compose restart n8n >/dev/null
+  echo "[bootstrap] waiting for webhook to become available"
+  if wait_for_webhook 5 2; then
     exit 0
   fi
-  sleep 2
-  echo "[bootstrap] retry $i -> status=$status"
-done
+elif [[ "$RESTART_MODE" == "on-failure" ]]; then
+  echo "[bootstrap] waiting for webhook without restart"
+  if wait_for_webhook 3 2; then
+    exit 0
+  fi
+  echo "[bootstrap] webhook not ready, restarting n8n (mode=on-failure)"
+  docker compose restart n8n >/dev/null
+  echo "[bootstrap] waiting for webhook after restart"
+  if wait_for_webhook 5 2; then
+    exit 0
+  fi
+elif [[ "$RESTART_MODE" == "never" ]]; then
+  echo "[bootstrap] waiting for webhook without restart (mode=never)"
+  if wait_for_webhook 5 2; then
+    exit 0
+  fi
+else
+  echo "[bootstrap] invalid N8N_BOOTSTRAP_RESTART_MODE=${RESTART_MODE} (expected: always|on-failure|never)" >&2
+  exit 1
+fi
 
 echo "[bootstrap] webhook validation failed"
 if [[ -f /tmp/n8n_bootstrap_webhook.json ]]; then

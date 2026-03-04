@@ -115,6 +115,8 @@ Orchestration 경로
 ## 8) 비밀값 운영
 
 - 실제 비밀값은 `.env.local`만 사용(커밋 금지)
+- frontend 런타임은 최소 허용 키만 추출한 `shared_data/runtime/frontend.env` 사용
+  - 생성: `npm run runtime:prepare`
 - 우선 로테이션
   - `INTERNAL_API_TOKEN`
   - `INTERNAL_SIGNING_SECRET`

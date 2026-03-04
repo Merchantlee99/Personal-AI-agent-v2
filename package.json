@@ -18,6 +18,7 @@
     "verify:memory": "bash scripts/verify/check-memory-markdown.sh",
     "verify:clio-e2e": "bash scripts/verify/check-clio-pipeline-e2e.sh",
     "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
+    "runtime:prepare": "bash scripts/runtime/render-frontend-env.sh",
     "security:check-orchestration": "bash scripts/security/check-orchestration-hardening.sh",
     "security:branch-protect": "bash scripts/security/apply-branch-protection.sh",
     "security:branch-protect:auto": "bash scripts/security/auto-branch-protection-profile.sh",

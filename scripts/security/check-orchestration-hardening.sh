@@ -81,6 +81,15 @@ print(f"[security-orch] OK HERMES_AUTO_CLIO_SAVE_MIN_IMPACT={value}")
 PY
 
 require_non_empty ORCHESTRATION_EVENT_URL
+EXPECTED_ORCH_URL="http://frontend:3000/api/orchestration/events"
+CURRENT_ORCH_URL="$(get_env ORCHESTRATION_EVENT_URL)"
+if [[ "$CURRENT_ORCH_URL" != "$EXPECTED_ORCH_URL" ]]; then
+  echo "[security-orch] FAIL ORCHESTRATION_EVENT_URL must be ${EXPECTED_ORCH_URL}" >&2
+  echo "[security-orch] current ORCHESTRATION_EVENT_URL=${CURRENT_ORCH_URL:-<unset>}" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK ORCHESTRATION_EVENT_URL uses frontend internal DNS"
+fi
 
 EXPECTED_TZ="Asia/Seoul"
 GENERIC_TIMEZONE_VALUE="$(get_env GENERIC_TIMEZONE)"

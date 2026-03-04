@@ -25,6 +25,7 @@ flowchart LR
 
 ## 바로 실행
 ```bash
+npm run runtime:prepare
 docker compose build
 docker compose up -d
 ```
