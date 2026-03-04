@@ -68,6 +68,10 @@ services:
     container_name: nanoclaw-n8n
     env_file:
       - .env.local
+    environment:
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Seoul}
+      N8N_DEFAULT_TIMEZONE: ${N8N_DEFAULT_TIMEZONE:-Asia/Seoul}
+      TZ: ${TZ:-Asia/Seoul}
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m

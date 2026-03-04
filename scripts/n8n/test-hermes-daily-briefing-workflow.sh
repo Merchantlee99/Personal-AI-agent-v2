@@ -18,6 +18,26 @@ required = {
 missing = sorted(required - names)
 if missing:
     raise SystemExit(f"missing schedule nodes: {', '.join(missing)}")
+expected_cron = {
+    "Schedule P0 Daily (KST 09:00)": "0 9 * * *",
+    "Schedule P1 Every2Days (KST 09:10)": "10 9 */2 * *",
+    "Schedule P2 Every3Days (KST 09:20)": "20 9 */3 * *",
+}
+for node in workflow.get("nodes", []):
+    node_name = node.get("name")
+    if node_name not in expected_cron:
+        continue
+    cron = str(
+        node.get("parameters", {})
+        .get("rule", {})
+        .get("interval", [{}])[0]
+        .get("expression", "")
+    )
+    if cron != expected_cron[node_name]:
+        raise SystemExit(f"unexpected cron for {node_name}: {cron!r}")
+    notes = str(node.get("notes", ""))
+    if "Asia/Seoul" not in notes:
+        raise SystemExit(f"missing timezone note for {node_name}")
 code_by_name = {
     node.get("name"): str(node.get("parameters", {}).get("jsCode", ""))
     for node in workflow.get("nodes", [])

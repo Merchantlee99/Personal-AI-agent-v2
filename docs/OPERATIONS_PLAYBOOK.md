@@ -38,6 +38,12 @@ curl -sS http://127.0.0.1:8001/health
 
 ## 3) Day-1 워크플로 부트스트랩
 
+타임존 사전 확인
+```bash
+grep -E '^(GENERIC_TIMEZONE|N8N_DEFAULT_TIMEZONE|TZ)=' .env.local
+```
+- 기대값: 모두 `Asia/Seoul`
+
 ```bash
 npm run n8n:bootstrap
 npm run n8n:bootstrap:hermes

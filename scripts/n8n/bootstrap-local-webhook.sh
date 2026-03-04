@@ -27,6 +27,24 @@ wait_for_n8n_cli() {
   return 1
 }
 
+verify_n8n_timezone() {
+  local expected="${N8N_EXPECTED_TIMEZONE:-Asia/Seoul}"
+  local generic_tz
+  local default_tz
+  local tz_value
+  generic_tz="$(docker exec nanoclaw-n8n sh -lc 'printf "%s" "${GENERIC_TIMEZONE:-}"' 2>/dev/null || true)"
+  default_tz="$(docker exec nanoclaw-n8n sh -lc 'printf "%s" "${N8N_DEFAULT_TIMEZONE:-}"' 2>/dev/null || true)"
+  tz_value="$(docker exec nanoclaw-n8n sh -lc 'printf "%s" "${TZ:-}"' 2>/dev/null || true)"
+  if [[ "$generic_tz" != "$expected" || "$default_tz" != "$expected" || "$tz_value" != "$expected" ]]; then
+    echo "[bootstrap] timezone mismatch; expected=${expected}" >&2
+    echo "[bootstrap] GENERIC_TIMEZONE=${generic_tz:-<unset>}" >&2
+    echo "[bootstrap] N8N_DEFAULT_TIMEZONE=${default_tz:-<unset>}" >&2
+    echo "[bootstrap] TZ=${tz_value:-<unset>}" >&2
+    return 1
+  fi
+  echo "[bootstrap] timezone ok (${expected})"
+}
+
 if [[ ! -f "$WORKFLOW_FILE" ]]; then
   echo "[bootstrap] workflow file not found: $WORKFLOW_FILE" >&2
   exit 1
@@ -40,6 +58,7 @@ if ! docker compose ps -a | grep -E "nanoclaw-n8n\s" | grep -q "Up"; then
   exit 1
 fi
 wait_for_n8n_cli
+verify_n8n_timezone
 
 mkdir -p shared_data/workflows
 TARGET_FILE="shared_data/workflows/$(basename "$WORKFLOW_FILE")"
@@ -49,14 +68,28 @@ before_ids="$(get_workflow_ids || true)"
 existing_workflow_id="$(printf '%s\n' "$before_ids" | awk 'NF{id=$1} END{print id}')"
 workflow_id="$existing_workflow_id"
 
-if [[ -n "$existing_workflow_id" && "$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICATE_IMPORT" != "true" ]]; then
-  echo "[bootstrap] force import requested but existing workflow found id=$existing_workflow_id"
-  echo "[bootstrap] skip import to prevent duplicate accumulation. run 'npm run n8n:reset-singleton' for clean re-import."
-fi
-
 if [[ -n "$workflow_id" && ! ("$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICATE_IMPORT" == "true") ]]; then
-  echo "[bootstrap] reusing existing workflow id=$workflow_id"
-  after_ids="$before_ids"
+  echo "[bootstrap] syncing existing workflow id=$workflow_id from $TARGET_FILE"
+  SYNC_FILE="shared_data/workflows/.sync-${workflow_id}-$(basename "$WORKFLOW_FILE")"
+  python3 - "$TARGET_FILE" "$SYNC_FILE" "$workflow_id" <<'PY'
+import json
+import pathlib
+import sys
+
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+workflow_id = sys.argv[3]
+
+payload = json.loads(src.read_text(encoding="utf-8"))
+payload["id"] = workflow_id
+dst.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+  if ! docker exec nanoclaw-n8n n8n import:workflow --input="/data/$SYNC_FILE" >/tmp/n8n_import.log 2>&1; then
+    cat /tmp/n8n_import.log >&2
+    exit 1
+  fi
+  rm -f "$SYNC_FILE"
+  after_ids="$(get_workflow_ids || true)"
 else
   echo "[bootstrap] importing workflow from $TARGET_FILE"
   if ! docker exec nanoclaw-n8n n8n import:workflow --input="/data/$TARGET_FILE" >/tmp/n8n_import.log 2>&1; then

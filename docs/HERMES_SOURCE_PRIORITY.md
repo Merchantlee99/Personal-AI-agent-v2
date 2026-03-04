@@ -32,9 +32,10 @@ Hermes 스케줄 수집은 아래 기준으로 우선순위를 둔다.
 
 ## 1-1) n8n Schedule Mapping
 
-- `P0`: 매일 1회 (`KST 09:00`, cron `0 0 * * *` UTC)
-- `P1`: 2일마다 1회, 주 3회 수준 (`KST 09:10`, cron `10 0 */2 * *` UTC)
-- `P2`: 3일마다 1회, 주 2회 수준 (`KST 09:20`, cron `20 0 */3 * *` UTC)
+- 타임존 고정: `Asia/Seoul` (`GENERIC_TIMEZONE`, `N8N_DEFAULT_TIMEZONE`, `TZ`)
+- `P0`: 매일 1회 (`KST 09:00`, cron `0 9 * * *`)
+- `P1`: 2일마다 1회, 주 3회 수준 (`KST 09:10`, cron `10 9 */2 * *`)
+- `P2`: 3일마다 1회, 주 2회 수준 (`KST 09:20`, cron `20 9 */3 * *`)
 
 ## 2) Category Keys
 

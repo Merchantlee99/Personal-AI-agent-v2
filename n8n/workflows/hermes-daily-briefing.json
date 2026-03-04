@@ -96,7 +96,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 * * *"
+              "expression": "0 9 * * *"
             }
           ]
         }
@@ -109,7 +109,7 @@
         260,
         80
       ],
-      "notes": "UTC 00:00 == KST 09:00 (P0 daily)"
+      "notes": "KST 09:00 daily (Asia/Seoul timezone)"
     },
     {
       "parameters": {
@@ -131,7 +131,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "10 0 */2 * *"
+              "expression": "10 9 */2 * *"
             }
           ]
         }
@@ -144,7 +144,7 @@
         260,
         180
       ],
-      "notes": "UTC 00:10 ~= KST 09:10 (P1 every 2 days)"
+      "notes": "KST 09:10 every 2 days (Asia/Seoul timezone)"
     },
     {
       "parameters": {
@@ -166,7 +166,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "20 0 */3 * *"
+              "expression": "20 9 */3 * *"
             }
           ]
         }
@@ -179,7 +179,7 @@
         260,
         280
       ],
-      "notes": "UTC 00:20 ~= KST 09:20 (P2 every 3 days)"
+      "notes": "KST 09:20 every 3 days (Asia/Seoul timezone)"
     },
     {
       "parameters": {

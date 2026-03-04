@@ -82,6 +82,17 @@ PY
 
 require_non_empty ORCHESTRATION_EVENT_URL
 
+EXPECTED_TZ="Asia/Seoul"
+GENERIC_TIMEZONE_VALUE="$(get_env GENERIC_TIMEZONE)"
+N8N_DEFAULT_TZ_VALUE="$(get_env N8N_DEFAULT_TIMEZONE)"
+TZ_VALUE="$(get_env TZ)"
+if [[ "$GENERIC_TIMEZONE_VALUE" != "$EXPECTED_TZ" || "$N8N_DEFAULT_TZ_VALUE" != "$EXPECTED_TZ" || "$TZ_VALUE" != "$EXPECTED_TZ" ]]; then
+  echo "[security-orch] FAIL n8n timezone must be Asia/Seoul (GENERIC_TIMEZONE/N8N_DEFAULT_TIMEZONE/TZ)" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK n8n timezone is Asia/Seoul"
+fi
+
 SEARCH_PROVIDER="$(printf '%s' "$(get_env SEARCH_PROVIDER)" | tr '[:upper:]' '[:lower:]' | xargs)"
 if [[ -z "$SEARCH_PROVIDER" ]]; then
   SEARCH_PROVIDER="auto"
