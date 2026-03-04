@@ -1,109 +1,107 @@
 # Hermes Source Priority (n8n Schedule)
 
-Hermes 스케줄 수집은 아래 기준으로 우선순위를 둔다.
-이 문서는 Hermes 수집/브리핑 정책만 다루며, 전체 보안 통제는 [SECURITY_BASELINE](SECURITY_BASELINE.md)를 따른다.
-관련 문서: [ARCHITECTURE](ARCHITECTURE.md), [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md), [USE_CASES](USE_CASES.md)
+이 문서는 Hermes 수집 정책(P0/P1/P2, 카테고리, 포맷)을 정의합니다.
+보안 전체 기준은 [SECURITY_BASELINE](SECURITY_BASELINE.md)을 따릅니다.
 
-## 1) Priority Tiers
+## 1) 수집 우선순위와 스케줄
 
-### P0 (매일, 핵심)
-- KR Super App/PM: Toss Tech
-- KR Engineering Core: Naver D2, Kakao Tech
-- KR Curation: GeekNews
-- Global AI: OpenAI News, Anthropic News
-- Global BigTech: Cloudflare Blog, AWS News Blog
-- Global Aggregator: Hacker News
+| Tier | 목적 | 주기 | KST 시간 | n8n 노드 |
+|---|---|---|---|---|
+| P0 | 즉시성 높은 핵심 신호 | 매일 | 09:00 | `Schedule P0 Daily (KST 09:00)` |
+| P1 | 분석 가치 높은 중간 신호 | 2일마다 | 09:10 | `Schedule P1 Every2Days (KST 09:10)` |
+| P2 | 롱테일 관찰 신호 | 3일마다 | 09:20 | `Schedule P2 Every3Days (KST 09:20)` |
 
-### P1 (주 3~7회)
-- KR Super App/PM: Woowahan Tech, Karrot Tech
-- KR Mobility/Travel: MyRealTrip Tech, Socar Tech
-- KR AI/Growth: Upstage, AB180
-- Global BigTech: Netflix TechBlog, Airbnb Engineering, Uber Engineering
-- Global AI: Hugging Face Blog, Google DeepMind Blog
-- Global Product/Strategy: Stratechery, Lenny's Newsletter
+## 2) 카테고리 키 + 이모지
 
-### P2 (주 1~3회)
-- KR Super App/PM: LINE Engineering
-- KR Mobility/Travel: Yanolja Tech, Tmap Mobility Tech
-- KR AI/Growth: Hyperconnect
-- Global BigTech: Stripe Blog
-- Global Product/Strategy: Reforge Blog
-- Global Aggregator: InfoQ, TechCrunch
+| category | label | emoji |
+|---|---|---|
+| `kr_super_app` | KR Super App/PM | 📱 |
+| `kr_engineering_core` | KR Engineering Core | 🛠️ |
+| `kr_mobility` | KR Mobility/Travel | 🚗 |
+| `kr_ai_growth` | KR AI/Growth | 🤖 |
+| `kr_aggregator` | KR Curation | 🧭 |
+| `global_bigtech` | Global BigTech | 🌐 |
+| `global_ai` | Global AI | 🧠 |
+| `global_strategy` | Global Product/Strategy | 📈 |
+| `global_aggregator` | Global Aggregator | 🗞️ |
 
-## 1-1) n8n Schedule Mapping
+## 3) Tier별 대표 소스
 
-- `P0`: 매일 1회 (`KST 09:00`, cron `0 0 * * *` UTC)
-- `P1`: 2일마다 1회, 주 3회 수준 (`KST 09:10`, cron `10 0 */2 * *` UTC)
-- `P2`: 3일마다 1회, 주 2회 수준 (`KST 09:20`, cron `20 0 */3 * *` UTC)
+### P0 (매일)
+- Toss Tech, Naver D2, Kakao Tech, GeekNews
+- OpenAI News, Anthropic News
+- Cloudflare Blog, AWS News Blog, Hacker News
 
-## 2) Category Keys
+### P1 (2일마다)
+- Woowahan Tech, Karrot Tech
+- MyRealTrip Tech, Socar Tech
+- Upstage, AB180
+- Netflix, Airbnb, Uber
+- Hugging Face, DeepMind
+- Stratechery, Lenny's Newsletter
 
-- `kr_super_app`
-- `kr_engineering_core`
-- `kr_mobility`
-- `kr_ai_growth`
-- `kr_aggregator`
-- `global_bigtech`
-- `global_ai`
-- `global_strategy`
-- `global_aggregator`
+### P2 (3일마다)
+- LINE Engineering
+- Yanolja Tech, Tmap Mobility
+- Hyperconnect
+- Stripe, Reforge
+- InfoQ, TechCrunch
 
-## 2-1) Category Emoji
+## 4) 데이터 계약(브리핑 전 필수 필드)
 
-- `kr_super_app`: 📱
-- `kr_engineering_core`: 🛠️
-- `kr_mobility`: 🚗
-- `kr_ai_growth`: 🤖
-- `kr_aggregator`: 🧭
-- `global_bigtech`: 🌐
-- `global_ai`: 🧠
-- `global_strategy`: 📈
-- `global_aggregator`: 🗞️
-
-## 3) Data Contract (권장)
-
-Hermes 수집 결과에 아래 필드를 유지:
-
+Hermes 수집 결과는 최소 아래 필드를 유지합니다.
 - `title`
 - `url`
 - `snippet`
 - `category`
-- `priority_tier`
+- `priorityTier`
 - `publisher`
 - `domain`
-- `security_stats` (injection 제거/unsafe url 제거 통계)
+- `security_stats`
 
-## 4) Telegram 전달 포맷 원칙
+## 5) 보안 필터 정책
 
-- markdown heading (`##`) 금지
-- markdown bold (`**`) 금지
-- 한 메시지 4,096자 이내
-- 고정 섹션: 주제 / 핵심 요약 / 출처 / Minerva 인사이트
-- 출처는 `P0~P2 + 카테고리`를 함께 표기
+필수 필터
+- `INJECTION_PATTERNS`: prompt-like 문구 제거
+- `isSafeUrl`: unsafe/internal URL 차단
+- `security_stats`: 제거/드롭 통계 기록
 
-## 4-1) Tier별 길이/톤
+적용 워크플로
+- `n8n/workflows/hermes-daily-briefing.json`
+- `n8n/workflows/hermes-web-search-tavily.json`
 
-- `P0`: 짧은형(즉시 실행)
-  - 요약 2줄, 인사이트 1줄, 출처 최대 2개
-- `P1`: 분석형(근거+영향 균형)
-  - 요약 3줄, 인사이트 2줄, 출처 최대 3개
-- `P2`: 스캔형(관찰 중심)
-  - 요약 2줄, 인사이트 2줄, 출처 최대 2개
+## 6) Telegram 브리핑 포맷 기준
 
-## 4-2) 멀티 주제 포맷
+고정 섹션
+- `🧩 주제`
+- `📌 핵심 요약`
+- `🔎 출처`
+- `🧠 Minerva 인사이트`
 
-- `🧩 주제`: 카테고리 이모지 + 주제 제목을 다건(`n`)으로 출력
-- `📌 핵심 요약`: 주제별 한 줄 요약(`n`)으로 출력
-- `🔎 출처`: 주제별 링크 나열
-- `🧠 Minerva 인사이트`: 상위 1~2개 분석 대상 + 카테고리 간 연관성 요약
-- `👇 다음 액션` 블록은 기본 출력에서 제외
+금지 포맷
+- `##` heading
+- `**` bold
 
-## 4-3) 언어 정책
+## 7) Tier별 톤/길이
 
-- 텔레그램 브리핑은 한국어 우선
-- `DEEPL_API_KEY`가 설정되어 있으면 Tier 정책에 따라 핵심 요약 중심 번역 수행
-  - `P0`: `summary` + 상위 2개 `source snippet` 번역
-  - `P1`: `summary` + 상위 1개 `source snippet` 번역
-  - `P2`: 자동 번역 미적용(원문 유지)
-- 제목(`title`)과 출처 제목은 원문 유지(번역 문자량 절감 목적)
-- 번역 실패 또는 키 미설정 시 원문 유지(실패로 브리핑 중단하지 않음)
+| Tier | 톤 | 요약 | 인사이트 | 출처 |
+|---|---|---|---|---|
+| P0 | 즉시 실행형 | 2줄 | 1줄 | 최대 2개 |
+| P1 | 분석형 | 3줄 | 2줄 | 최대 3개 |
+| P2 | 스캔형 | 2줄 | 2줄 | 최대 2개 |
+
+## 8) 한국어 번역 최적화(DeepL)
+
+비용 절감 정책
+- P0: `summary` + 상위 2개 `source snippet`
+- P1: `summary` + 상위 1개 `source snippet`
+- P2: 자동 번역 없음
+
+원칙
+- 제목/출처 타이틀은 원문 유지(문자량 절감)
+- 번역 실패 시 원문 유지(브리핑 중단 금지)
+
+## 9) 운영 팁
+- `HERMES_SEARCH_PROVIDER=tavily`면 Tavily 강제, `auto`면 키 존재 시 Tavily 우선
+- 소스 오염이 의심되면 `security_stats.prompt_like_removed`, `dropped_unsafe_url` 먼저 확인
+
