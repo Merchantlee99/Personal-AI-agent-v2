@@ -1,40 +1,34 @@
 # NanoClaw v2 Operations Playbook
 
-이 문서는 "지금 바로 어떻게 운영하는가"를 설명합니다.
-아키텍처/보안/시나리오는 [ARCHITECTURE](ARCHITECTURE.md), [SECURITY_BASELINE](SECURITY_BASELINE.md), [USE_CASES](USE_CASES.md)를 봅니다.
+이 문서는 "실운영에서 무엇을, 어떤 순서로, 어떤 기준으로 확인할지"를 다룹니다.
 
-## 1) 운영 최소 조건 (반드시 유지)
+## 1) 운영 전제
 
-실사용 상태를 유지하려면 아래 3가지를 동시에 만족해야 합니다.
+필수 실행 상태
+1. `nanoclaw-frontend` Up(healthy)
+2. `nanoclaw-llm-proxy` Up(healthy)
+3. `nanoclaw-agent` Up
+4. `nanoclaw-n8n` Up(healthy)
 
-1. 컨테이너 3개가 `Up`
-- `nanoclaw-agent`
-- `nanoclaw-llm-proxy`
-- `nanoclaw-n8n`
+필수 원칙
+- 설정 변경 후 `npm run runtime:prepare`로 frontend 런타임 env 재생성
+- 검증 없이 운영 정책 변경 금지
 
-2. 프론트 서버 실행 중
-- `npm run dev -- --hostname 127.0.0.1 --port 3000`
-
-3. (외부 Telegram webhook 사용 시) 공개 HTTPS 터널 1개
-
-중요
-- 컨테이너는 `docker compose up -d`로 띄우면 터미널 종료 후에도 유지됩니다.
-- `npm run dev`는 터미널 프로세스라 종료 시 함께 중단됩니다.
-
-## 2) Day-1 기동
+## 2) Day-1 기동 순서
 
 ```bash
+npm run runtime:prepare
 docker compose build
 docker compose up -d
 docker compose ps
-npm run dev -- --hostname 127.0.0.1 --port 3000
 curl -sS http://127.0.0.1:8001/health
+curl -sS http://127.0.0.1:3000/api/runtime-metrics | jq '.ok'
 ```
 
 성공 기준
-- `docker compose ps`에서 핵심 3서비스 `Up`
-- `llm-proxy /health` 응답 정상
-- `127.0.0.1:3000` 접속 정상
+- 4개 서비스 모두 Up
+- `llm-proxy /health` = ok
+- `runtime-metrics.ok` = true
 
 ## 3) Day-1 워크플로 부트스트랩
 
@@ -52,76 +46,119 @@ npm run n8n:test:hermes-search
 
 ## 4) Day-2 운영 루틴
 
-일일
+일일 점검
 ```bash
-npm run verify:smoke
+npm run verify:event-contract
 npm run verify:orchestration
 npm run verify:telegram:inline
 npm run security:check-orchestration
+npm run verify:llm-usage
 ```
 
-주간
+주간 점검
 ```bash
 npm run test:proxy
-npm run verify:llm-usage
 npm run verify:clio-e2e
+npm run verify:daily
 ```
 
-## 5) 즉시 트러블슈팅
+## 5) 운영 대시보드 해석 기준
 
-### 5-1) Telegram 브리핑이 안 올 때
-1. `docker compose ps`
-2. `npm run telegram:webhook:info`
-3. `npm run verify:orchestration`
-4. `docker compose logs n8n --tail=100`
+`/api/runtime-metrics`
 
-### 5-2) Telegram 일반 대화 응답이 없을 때
-1. `3000` 포트 Next 서버 실행 확인
-2. `TELEGRAM_ALLOWED_USER_IDS/CHAT_IDS` 확인
-3. webhook 로그에서 allowlist/rate-limit 차단 확인
+핵심 지표
+- `llm.successRate`: LLM 성공률
+- `llm.latencyMs.p95`: LLM 지연 상위 95%
+- `llm.quota429`: 쿼터 압박 신호
+- `orchestration.byDecision`: 즉시/다이제스트/억제 분포
+- `orchestration.telegram.successRate`: 브리핑 전송 품질
+- `orchestration.pendingApprovals`: 승인 병목 여부
+- `deepl.translated`, `deepl.failed`: 번역 비용/오류 신호
 
-### 5-3) Clio 저장 누락 시
-1. `shared_data/inbox`에 clio task 생성 여부 확인
-2. `nanoclaw-agent` 로그 확인
-3. `shared_data/verified_inbox`, `shared_data/obsidian_vault` 산출물 확인
+## 6) 장애 대응 런북
 
-## 6) 번역(DeepL) 운영
+### 6-1) 아침 브리핑 미수신
 
-정책
-- `P0`: summary + 상위 2개 snippet 번역
-- `P1`: summary + 상위 1개 snippet 번역
-- `P2`: 자동 번역 없음
-
-필수 값
-- `DEEPL_API_KEY`
-- `DEEPL_TARGET_LANG=KO`
-
-검증
-- 단건 API `HTTP 200`
-- 영어 이벤트 E2E 전송 시 텔레그램 `핵심 요약` 한글 출력
-
-## 7) 브랜치 보호 운영
-
-수동 적용
+1. 컨테이너 상태 확인
 ```bash
-GITHUB_TOKEN=*** \
-GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 \
-GITHUB_BRANCH=main \
-npm run security:branch-protect
+docker compose ps
+```
+2. n8n 워크플로 상태/로그 확인
+```bash
+docker compose logs n8n --tail=200
+```
+3. 오케스트레이션 E2E 확인
+```bash
+FRONTEND_PORT=3000 npm run verify:orchestration
+```
+4. Telegram 경로 확인
+```bash
+npm run telegram:webhook:info
+FRONTEND_PORT=3000 npm run verify:telegram:inline
 ```
 
-프로필
-- `strict`: 승인 1개 + 필수 상태체크
-- `solo`: 승인 0개 + 필수 상태체크
-- `auto`: 운영자 수 기준 자동 선택
+### 6-2) Telegram 일반 대화 무응답
 
-## 8) 운영 상태 플로우
+1. webhook secret/allowlist 확인
+2. `/api/chat` 경로 확인
+3. `llm-proxy /health` 확인
+
+### 6-3) Clio 저장 누락
+
+1. 승인 큐 상태 확인 (`pending/expired`)
+2. `shared_data/inbox` 생성 여부 확인
+3. `nanoclaw-agent` 로그 확인
+4. `obsidian_vault`/`verified_inbox` 산출물 확인
+
+## 7) 배포/변경 운영 규칙
+
+1. 정책 변경 전: 영향 범위 문서화
+2. 정책 변경 후: `runtime:prepare` + 컨테이너 재기동
+3. 재기동 후: `verify:event-contract`, `verify:orchestration`, `security:check-orchestration` 필수
+4. 운영 중대 변경은 PR로 리뷰 후 반영
+
+## 8) 자동 PR + Auto-Merge 운영
+
+워크플로
+- `.github/workflows/auto-pr-automerge.yml`
+- 동작: `main`이 아닌 브랜치로 push되면 PR을 생성(또는 재사용)하고 auto-merge를 활성화 시도
+
+필수 선행조건(1회)
+1. GitHub Repository Settings -> General -> Pull Requests -> `Allow auto-merge` 활성화
+2. GitHub Repository Settings -> Actions -> General
+   - Workflow permissions: `Read and write permissions`
+   - `Allow GitHub Actions to create and approve pull requests` 활성화
+3. `main` 보호 규칙에서 Required checks 유지(예: `runtime-verification`)
+4. 1인 운영이면 `required approvals = 0`(solo 프로필), 2인 이상이면 strict 프로필
+5. 필요 시 `AUTO_PR_TOKEN`(fine-grained PAT) 저장소 시크릿 설정
+
+자동 설정 명령(토큰 필요)
+```bash
+GITHUB_TOKEN=*** GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 npm run github:auto-merge:bootstrap
+```
+
+주의
+- required check가 통과되기 전에는 머지되지 않음(정상 동작)
+- repo 설정에서 auto-merge가 비활성화되어 있으면 워크플로는 PR 생성까지만 수행
+- 이미 열린 PR이 있으면 새 PR을 만들지 않고 기존 PR에 auto-merge를 재설정
+
+## 9) 운영 시퀀스 시각화
 
 ```mermaid
-flowchart LR
-  BOOT["Boot"] --> HEALTH["Health"]
-  HEALTH --> FLOW["Orchestration/Telegram"]
-  FLOW --> AGENT["Agent pipeline"]
-  AGENT --> SEC["Security checks"]
-  SEC --> READY["Operational Ready"]
+flowchart TD
+  BOOT["runtime:prepare + compose up"] --> HEALTH["health + metrics"]
+  HEALTH --> VERIFY["event-contract / orchestration / telegram-inline"]
+  VERIFY --> RUN["daily operation"]
+  RUN --> OBS["observe metrics"]
+  OBS -->|"anomaly"| INCIDENT["runbook 대응"]
+  INCIDENT --> VERIFY
+  OBS -->|"stable"| RUN
 ```
+
+## 10) 체크리스트 (운영자용)
+
+- [ ] strict schema(`ORCH_REQUIRE_SCHEMA_V1`)가 frontend runtime env에 반영됨
+- [ ] Telegram 액션 3종이 2단계 승인으로 동작함
+- [ ] `security:check-orchestration` PASS
+- [ ] runtime-metrics 주요 필드 정상 노출
+- [ ] n8n timezone이 `Asia/Seoul`로 고정됨
