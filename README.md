@@ -27,7 +27,6 @@ flowchart LR
 ```bash
 docker compose build
 docker compose up -d
-npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 ## 문서 읽는 순서
@@ -42,14 +41,14 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 
 ## 현재 운영 최소 조건
 
-아래 3개가 살아 있어야 실사용이 됩니다.
-1. 컨테이너: `nanoclaw-agent`, `nanoclaw-llm-proxy`, `nanoclaw-n8n`
-2. 프론트 서버: `npm run dev` (`127.0.0.1:3000`)
+아래 4개가 살아 있어야 실사용이 됩니다.
+1. 컨테이너: `nanoclaw-frontend`, `nanoclaw-agent`, `nanoclaw-llm-proxy`, `nanoclaw-n8n`
+2. 프론트/API: `http://127.0.0.1:3000` (`next start`, 컨테이너 내부)
 3. (외부 Telegram webhook 사용 시) 공개 HTTPS 터널 1개
 
 참고
 - 컨테이너는 `docker compose up -d`로 띄우면 터미널 종료 후에도 유지됩니다.
-- `npm run dev`는 터미널 프로세스라 종료 시 함께 내려갑니다.
+- UI 병렬 개발이 필요하면 별도 포트로 `npm run dev -- --hostname 127.0.0.1 --port 3030`를 사용합니다.
 
 ## 최신 반영 포인트
 - Telegram 인라인 버튼

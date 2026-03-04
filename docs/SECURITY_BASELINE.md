@@ -103,6 +103,14 @@ sequenceDiagram
 네트워크
 - internal network: 내부 서비스 통신
 - external network: 외부 API 필요한 서비스만 연결
+- published port는 localhost 바인딩만 허용 (`127.0.0.1`)
+  - frontend `127.0.0.1:3000`
+  - llm-proxy `127.0.0.1:8001`
+  - n8n `127.0.0.1:5678`
+
+Orchestration 경로
+- n8n -> frontend는 내부 DNS 고정: `http://frontend:3000/api/orchestration/events`
+- `host.docker.internal` 경로는 기본 운영 경로로 사용하지 않음
 
 ## 8) 비밀값 운영
 

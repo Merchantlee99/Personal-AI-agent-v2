@@ -7,19 +7,20 @@
 
 실사용 상태를 유지하려면 아래 3가지를 동시에 만족해야 합니다.
 
-1. 컨테이너 3개가 `Up`
+1. 컨테이너 4개가 `Up`
+- `nanoclaw-frontend`
 - `nanoclaw-agent`
 - `nanoclaw-llm-proxy`
 - `nanoclaw-n8n`
 
-2. 프론트 서버 실행 중
-- `npm run dev -- --hostname 127.0.0.1 --port 3000`
+2. 프론트/API 컨테이너 실행 중
+- `nanoclaw-frontend` (`next start`, `127.0.0.1:3000`)
 
 3. (외부 Telegram webhook 사용 시) 공개 HTTPS 터널 1개
 
 중요
 - 컨테이너는 `docker compose up -d`로 띄우면 터미널 종료 후에도 유지됩니다.
-- `npm run dev`는 터미널 프로세스라 종료 시 함께 중단됩니다.
+- UI 병렬 개발이 필요하면 `npm run dev -- --hostname 127.0.0.1 --port 3030`를 별도 실행합니다.
 
 ## 2) Day-1 기동
 
@@ -27,12 +28,12 @@
 docker compose build
 docker compose up -d
 docker compose ps
-npm run dev -- --hostname 127.0.0.1 --port 3000
 curl -sS http://127.0.0.1:8001/health
+curl -sS http://127.0.0.1:3000/
 ```
 
 성공 기준
-- `docker compose ps`에서 핵심 3서비스 `Up`
+- `docker compose ps`에서 핵심 4서비스 `Up`
 - `llm-proxy /health` 응답 정상
 - `127.0.0.1:3000` 접속 정상
 

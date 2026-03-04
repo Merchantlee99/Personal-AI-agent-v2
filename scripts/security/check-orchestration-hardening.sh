@@ -193,9 +193,56 @@ fi
 
 if docker compose ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
   if grep -q "nanoclaw-agent" /tmp/security_orch_compose_ps.txt; then
+    docker inspect nanoclaw-frontend --format '[security-orch] frontend read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
     docker inspect nanoclaw-agent --format '[security-orch] agent read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
     docker inspect nanoclaw-llm-proxy --format '[security-orch] proxy read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
     docker inspect nanoclaw-n8n --format '[security-orch] n8n read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
+  fi
+fi
+
+if docker compose ps >/tmp/security_orch_compose_ps_ports.txt 2>/dev/null \
+  && grep -q "nanoclaw-frontend" /tmp/security_orch_compose_ps_ports.txt \
+  && grep -q "nanoclaw-llm-proxy" /tmp/security_orch_compose_ps_ports.txt \
+  && grep -q "nanoclaw-n8n" /tmp/security_orch_compose_ps_ports.txt; then
+  echo "[security-orch] checking localhost-only published ports"
+  python3 - <<'PY' || FAIL=1
+import json
+import subprocess
+import sys
+
+checks = [
+    ("nanoclaw-frontend", "3000/tcp"),
+    ("nanoclaw-llm-proxy", "8000/tcp"),
+    ("nanoclaw-n8n", "5678/tcp"),
+]
+
+for container, container_port in checks:
+    raw = subprocess.check_output(["docker", "inspect", container], text=True)
+    data = json.loads(raw)[0]
+    bindings = data.get("HostConfig", {}).get("PortBindings", {}) or {}
+    ports = bindings.get(container_port) or []
+    if not ports:
+        raise SystemExit(f"[security-orch] FAIL {container} has no published mapping for {container_port}")
+    for item in ports:
+        host_ip = str(item.get("HostIp", "")).strip()
+        if host_ip != "127.0.0.1":
+            raise SystemExit(
+                f"[security-orch] FAIL {container} publishes {container_port} to non-localhost host_ip={host_ip!r}"
+            )
+    print(f"[security-orch] OK {container} publishes {container_port} on localhost only")
+PY
+else
+  echo "[security-orch] WARN container port checks skipped (frontend/proxy/n8n not all running)"
+fi
+
+if docker compose ps >/tmp/security_orch_compose_ps_2.txt 2>/dev/null && grep -q "nanoclaw-n8n" /tmp/security_orch_compose_ps_2.txt; then
+  N8N_ORCH_URL="$(docker exec nanoclaw-n8n sh -lc 'printf "%s" "${ORCHESTRATION_EVENT_URL:-}"' 2>/dev/null || true)"
+  if [[ "$N8N_ORCH_URL" != "http://frontend:3000/api/orchestration/events" ]]; then
+    echo "[security-orch] FAIL ORCHESTRATION_EVENT_URL inside n8n must be http://frontend:3000/api/orchestration/events" >&2
+    echo "[security-orch] current ORCHESTRATION_EVENT_URL=${N8N_ORCH_URL:-<unset>}" >&2
+    FAIL=1
+  else
+    echo "[security-orch] OK n8n ORCHESTRATION_EVENT_URL uses frontend internal DNS"
   fi
 fi
 

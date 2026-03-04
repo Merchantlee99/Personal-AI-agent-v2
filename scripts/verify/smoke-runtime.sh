@@ -4,10 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-FRONTEND_PORT="${FRONTEND_PORT:-3032}"
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 NEXT_LOG="/tmp/nanoclaw_next_smoke_${FRONTEND_PORT}.log"
 SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
+SMOKE_USE_NEXT_DEV="${SMOKE_USE_NEXT_DEV:-false}"
 
 cleanup() {
   if [[ -n "${NEXT_PID:-}" ]]; then
@@ -80,9 +81,10 @@ mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,sh
 chmod -R a+rwX shared_data || true
 
 echo "[smoke] docker services up"
-docker compose up -d llm-proxy nanoclaw-agent n8n >/dev/null
+docker compose up -d frontend llm-proxy nanoclaw-agent n8n >/dev/null
 
 echo "[smoke] wait containers ready"
+wait_for_container_health nanoclaw-frontend 20 1
 wait_for_container_health nanoclaw-llm-proxy 20 1
 wait_for_container_health nanoclaw-n8n 30 1
 wait_for_container_health nanoclaw-agent 20 1
@@ -107,9 +109,13 @@ echo "[smoke] n8n bootstrap"
 bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
 cat /tmp/nanoclaw_smoke_bootstrap.log
 
-echo "[smoke] start next dev on :$FRONTEND_PORT"
-npm run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" >"$NEXT_LOG" 2>&1 &
-NEXT_PID=$!
+if [[ "$SMOKE_USE_NEXT_DEV" == "true" ]]; then
+  echo "[smoke] start next dev on :$FRONTEND_PORT"
+  npm run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" >"$NEXT_LOG" 2>&1 &
+  NEXT_PID=$!
+else
+  echo "[smoke] use frontend container on :$FRONTEND_PORT"
+fi
 
 ready=0
 for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -182,6 +188,7 @@ latest_outbox="$(ls -1t shared_data/outbox | grep "$INBOX_FILE" | head -n 1)"
 cat "shared_data/outbox/$latest_outbox"
 
 echo "[smoke] security flags check"
+docker inspect nanoclaw-frontend --format 'frontend: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 docker inspect nanoclaw-agent --format 'agent: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 docker inspect nanoclaw-llm-proxy --format 'proxy: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 docker inspect nanoclaw-n8n --format 'n8n: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
