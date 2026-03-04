@@ -117,7 +117,23 @@ FRONTEND_PORT=3000 npm run verify:telegram:inline
 3. 재기동 후: `verify:event-contract`, `verify:orchestration`, `security:check-orchestration` 필수
 4. 운영 중대 변경은 PR로 리뷰 후 반영
 
-## 8) 운영 시퀀스 시각화
+## 8) 자동 PR + Auto-Merge 운영
+
+워크플로
+- `.github/workflows/auto-pr-automerge.yml`
+- 동작: `main`이 아닌 브랜치로 push되면 PR을 생성(또는 재사용)하고 auto-merge를 활성화 시도
+
+필수 선행조건(1회)
+1. GitHub Repository Settings -> General -> Pull Requests -> `Allow auto-merge` 활성화
+2. `main` 보호 규칙에서 Required checks 유지(예: `runtime-verification`)
+3. 1인 운영이면 `required approvals = 0`(solo 프로필), 2인 이상이면 strict 프로필
+
+주의
+- required check가 통과되기 전에는 머지되지 않음(정상 동작)
+- repo 설정에서 auto-merge가 비활성화되어 있으면 워크플로는 PR 생성까지만 수행
+- 이미 열린 PR이 있으면 새 PR을 만들지 않고 기존 PR에 auto-merge를 재설정
+
+## 9) 운영 시퀀스 시각화
 
 ```mermaid
 flowchart TD
@@ -130,7 +146,7 @@ flowchart TD
   OBS -->|"stable"| RUN
 ```
 
-## 9) 체크리스트 (운영자용)
+## 10) 체크리스트 (운영자용)
 
 - [ ] strict schema(`ORCH_REQUIRE_SCHEMA_V1`)가 frontend runtime env에 반영됨
 - [ ] Telegram 액션 3종이 2단계 승인으로 동작함
