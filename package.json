@@ -30,6 +30,7 @@
     "n8n:bootstrap:hermes-search": "bash scripts/n8n/bootstrap-hermes-web-search.sh",
     "n8n:test:hermes-search": "bash scripts/n8n/test-hermes-web-search-workflow.sh",
     "n8n:dispatch-hermes": "bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh",
+    "github:auto-merge:bootstrap": "bash scripts/github/enable-auto-pr-automerge-settings.sh",
     "telegram:webhook:set": "bash scripts/telegram/set-webhook.sh",
     "telegram:webhook:info": "bash scripts/telegram/get-webhook-info.sh",
     "telegram:rehearsal:send": "bash scripts/telegram/send-rehearsal-briefing.sh",

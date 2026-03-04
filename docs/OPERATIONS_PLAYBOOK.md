@@ -125,8 +125,16 @@ FRONTEND_PORT=3000 npm run verify:telegram:inline
 
 필수 선행조건(1회)
 1. GitHub Repository Settings -> General -> Pull Requests -> `Allow auto-merge` 활성화
-2. `main` 보호 규칙에서 Required checks 유지(예: `runtime-verification`)
-3. 1인 운영이면 `required approvals = 0`(solo 프로필), 2인 이상이면 strict 프로필
+2. GitHub Repository Settings -> Actions -> General
+   - Workflow permissions: `Read and write permissions`
+   - `Allow GitHub Actions to create and approve pull requests` 활성화
+3. `main` 보호 규칙에서 Required checks 유지(예: `runtime-verification`)
+4. 1인 운영이면 `required approvals = 0`(solo 프로필), 2인 이상이면 strict 프로필
+5. 필요 시 `AUTO_PR_TOKEN`(fine-grained PAT) 저장소 시크릿 설정
+자동 설정 명령(토큰 필요)
+```bash
+GITHUB_TOKEN=*** GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 npm run github:auto-merge:bootstrap
+```
 
 주의
 - required check가 통과되기 전에는 머지되지 않음(정상 동작)

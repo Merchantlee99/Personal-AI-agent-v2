@@ -25,6 +25,7 @@ jobs:
         id: upsert
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.AUTO_PR_TOKEN || github.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -83,6 +84,7 @@ jobs:
         if: ${{ steps.upsert.outputs.pr_node_id != '' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.AUTO_PR_TOKEN || github.token }}
           script: |
             const prNodeId = '${{ steps.upsert.outputs.pr_node_id }}';
             const prNumber = '${{ steps.upsert.outputs.pr_number }}';
