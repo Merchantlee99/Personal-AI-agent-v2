@@ -1,8 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+if [[ -f "${REPO_ROOT}/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env.local"
+  set +a
+fi
+
 FRONTEND_PORT="${FRONTEND_PORT:-3032}"
 BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
+ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-}"
+ALLOWED_CHAT_IDS="${TELEGRAM_ALLOWED_CHAT_IDS:-}"
+
+first_csv_value() {
+  local raw="$1"
+  raw="${raw%%,*}"
+  raw="${raw//[[:space:]]/}"
+  printf '%s' "$raw"
+}
+
+SOURCE_USER_ID="$(first_csv_value "$ALLOWED_USER_IDS")"
+SOURCE_CHAT_ID="$(first_csv_value "$ALLOWED_CHAT_IDS")"
+SOURCE_USER_ID="${SOURCE_USER_ID:-10001}"
+SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-${TELEGRAM_CHAT_ID:-20001}}"
 
 echo "[orchestration] send sample event"
 event_status="$(
@@ -44,17 +68,36 @@ if [[ -z "$event_id" ]]; then
 fi
 
 echo "[orchestration] trigger clio_save callback"
+cat >/tmp/orch_callback_request.json <<JSON
+{
+  "update_id": 1,
+  "callback_query": {
+    "id": "cbq-test",
+    "data": "clio_save:${event_id}",
+    "from": {
+      "id": ${SOURCE_USER_ID},
+      "username": "nanoclaw-test-user"
+    },
+    "message": {
+      "chat": {
+        "id": ${SOURCE_CHAT_ID},
+        "type": "private"
+      }
+    }
+  }
+}
+JSON
+
+callback_headers=(-H 'content-type: application/json')
+if [[ -n "$WEBHOOK_SECRET" ]]; then
+  callback_headers+=(-H "x-telegram-bot-api-secret-token: ${WEBHOOK_SECRET}")
+fi
+
 callback_status="$(
   curl -sS -o /tmp/orch_callback.json -w '%{http_code}' \
     -X POST "${BASE_URL}/api/telegram/webhook" \
-    -H 'content-type: application/json' \
-    -d "{
-      \"update_id\": 1,
-      \"callback_query\": {
-        \"id\": \"cbq-test\",
-        \"data\": \"clio_save:${event_id}\"
-      }
-    }" || true
+    "${callback_headers[@]}" \
+    -d @/tmp/orch_callback_request.json || true
 )"
 if [[ "$callback_status" != "200" ]]; then
   echo "[orchestration] callback endpoint failed status=$callback_status" >&2
@@ -64,4 +107,3 @@ fi
 cat /tmp/orch_callback.json
 
 echo "[orchestration] PASS"
-

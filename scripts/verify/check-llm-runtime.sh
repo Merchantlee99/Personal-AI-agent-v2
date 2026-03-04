@@ -28,16 +28,26 @@ LLM_PROVIDER_RAW="$(get_env_value LLM_PROVIDER || true)"
 LLM_PROVIDER="${LLM_PROVIDER_RAW:-auto}"
 GEMINI_KEY="$(get_env_value GEMINI_API_KEY || true)"
 GOOGLE_KEY="$(get_env_value GOOGLE_API_KEY || true)"
+ANTHROPIC_KEY="$(get_env_value ANTHROPIC_API_KEY || true)"
 
 HAS_KEY=0
-if [[ -n "${GEMINI_KEY}" || -n "${GOOGLE_KEY}" ]]; then
+if [[ -n "${GEMINI_KEY}" || -n "${GOOGLE_KEY}" || -n "${ANTHROPIC_KEY}" ]]; then
   HAS_KEY=1
+fi
+HAS_GEMINI_KEY=0
+if [[ -n "${GEMINI_KEY}" || -n "${GOOGLE_KEY}" ]]; then
+  HAS_GEMINI_KEY=1
 fi
 
 echo "[llm-runtime] provider=$LLM_PROVIDER has_key=$HAS_KEY"
 
-if [[ "$LLM_PROVIDER" == "gemini" && "$HAS_KEY" != "1" ]]; then
+if [[ "$LLM_PROVIDER" == "gemini" && "$HAS_GEMINI_KEY" != "1" ]]; then
   echo "[llm-runtime] FAIL: LLM_PROVIDER=gemini but GEMINI_API_KEY/GOOGLE_API_KEY is missing" >&2
+  exit 1
+fi
+
+if [[ "$LLM_PROVIDER" == "anthropic" && -z "${ANTHROPIC_KEY}" ]]; then
+  echo "[llm-runtime] FAIL: LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is missing" >&2
   exit 1
 fi
 
@@ -88,7 +98,8 @@ env = load_env(Path(".env.local"))
 token = env.get("INTERNAL_API_TOKEN", "change-me-in-env")
 secret = env.get("INTERNAL_SIGNING_SECRET", "change-signing-secret")
 provider = (env.get("LLM_PROVIDER", "auto") or "auto").strip().lower()
-has_key = bool((env.get("GEMINI_API_KEY", "") or env.get("GOOGLE_API_KEY", "")).strip())
+has_gemini_key = bool((env.get("GEMINI_API_KEY", "") or env.get("GOOGLE_API_KEY", "")).strip())
+has_anthropic_key = bool((env.get("ANTHROPIC_API_KEY", "")).strip())
 
 body_obj = {"agent_id": "minerva", "message": "llm runtime check"}
 body_json = json.dumps(body_obj, ensure_ascii=False, separators=(",", ":"))
@@ -127,7 +138,14 @@ missing = [key for key in required if key not in parsed]
 if missing:
     raise SystemExit(f"[llm-runtime] FAIL: missing fields in response: {missing}")
 
-mode = "gemini-real-candidate" if provider == "gemini" and has_key else "mock-or-auto-fallback"
+if provider == "gemini" and has_gemini_key:
+    mode = "gemini-real-candidate"
+elif provider == "anthropic" and has_anthropic_key:
+    mode = "anthropic-real-candidate"
+elif provider == "auto" and (has_gemini_key or has_anthropic_key):
+    mode = "auto-real-candidate"
+else:
+    mode = "mock-or-auto-fallback"
 print(json.dumps({"mode": mode, "agent_id": parsed["agent_id"], "model": parsed["model"]}, ensure_ascii=False))
 PY
 

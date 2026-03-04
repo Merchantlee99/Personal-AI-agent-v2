@@ -1,7 +1,7 @@
 # NanoClaw v2 Security Baseline
 
 이 문서는 "무엇을 막고, 어떤 통제로 막는가"를 설명합니다.
-실행 절차는 `OPERATIONS_PLAYBOOK.md`를 봅니다.
+실행 절차는 [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md)를 봅니다.
 
 ## 1) 보호 목표
 
@@ -14,13 +14,13 @@
 
 ```mermaid
 flowchart LR
-  EXT[Untrusted input\nUser/Telegram/n8n/Web] --> API[Next.js API]
-  API --> PX[llm-proxy]
-  API --> ORCH[/api/orchestration/events]
-  API --> TGCB[/api/telegram/webhook]
-  ORCH --> INBOX[shared_data/inbox]
+  EXT["Untrusted input\nUser/Telegram/n8n/Web"] --> API["Next.js API"]
+  API --> PX["llm-proxy"]
+  API --> ORCH["/api/orchestration/events"]
+  API --> TGCB["/api/telegram/webhook"]
+  ORCH --> INBOX["shared_data/inbox"]
   TGCB --> INBOX
-  INBOX --> AG[nanoclaw-agent]
+  INBOX --> AG["nanoclaw-agent"]
 
   classDef trusted fill:#e8f1ff,stroke:#2563eb,stroke-width:1px;
   class API,PX,ORCH,TGCB,AG trusted;

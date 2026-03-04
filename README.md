@@ -11,16 +11,16 @@ NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 에이전트를 역할 분리해
 ## 30초 구조
 ```mermaid
 flowchart LR
-  U[User] --> FE[Next.js UI/API]
-  FE --> PX[llm-proxy]
-  PX --> LLM[Gemini / Anthropic]
+  U["User"] --> FE["Next.js UI/API"]
+  FE --> PX["llm-proxy"]
+  PX --> LLM["Gemini / Anthropic"]
 
-  N8N[n8n schedule/webhook] --> ORCH[/api/orchestration/events]
-  ORCH --> TG[Telegram]
-  TG --> TGC[/api/telegram/webhook]
-  TGC --> INBOX[shared_data/inbox]
-  INBOX --> AG[nanoclaw-agent]
-  AG --> ARTIFACTS[obsidian_vault / outbox / verified_inbox]
+  N8N["n8n schedule/webhook"] --> ORCH["/api/orchestration/events"]
+  ORCH --> TG["Telegram"]
+  TG --> TGC["/api/telegram/webhook"]
+  TGC --> INBOX["shared_data/inbox"]
+  INBOX --> AG["nanoclaw-agent"]
+  AG --> ARTIFACTS["obsidian_vault / outbox / verified_inbox"]
 ```
 
 ## 바로 실행
@@ -34,11 +34,11 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 
 | 문서 | 이 문서가 답하는 질문 | 포함 | 제외 |
 |---|---|---|---|
-| `docs/ARCHITECTURE.md` | 시스템이 어떻게 연결되는가? | 컴포넌트, 데이터 플로우, 경계 | 장애 대응 절차, 운영 커맨드 |
-| `docs/SECURITY_BASELINE.md` | 무엇을 어떻게 막는가? | 위협-통제 매핑, 검증 체인 | 서비스 기동 순서 |
-| `docs/OPERATIONS_PLAYBOOK.md` | 오늘 바로 어떻게 운영하는가? | Day-1/Day-2 절차, 트러블슈팅 | 내부 설계 배경 |
-| `docs/USE_CASES.md` | 사용자가 어떤 결과를 받는가? | 시나리오별 입력/출력/산출물 | 전체 시스템 상세 구조 |
-| `docs/HERMES_SOURCE_PRIORITY.md` | Hermes는 무엇을 어떤 우선순위로 수집하는가? | P0/P1/P2 소스·포맷 정책 | 보안 전 범위 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 시스템이 어떻게 연결되는가? | 컴포넌트, 데이터 플로우, 경계 | 장애 대응 절차, 운영 커맨드 |
+| [docs/SECURITY_BASELINE.md](docs/SECURITY_BASELINE.md) | 무엇을 어떻게 막는가? | 위협-통제 매핑, 검증 체인 | 서비스 기동 순서 |
+| [docs/OPERATIONS_PLAYBOOK.md](docs/OPERATIONS_PLAYBOOK.md) | 오늘 바로 어떻게 운영하는가? | Day-1/Day-2 절차, 트러블슈팅 | 내부 설계 배경 |
+| [docs/USE_CASES.md](docs/USE_CASES.md) | 사용자가 어떤 결과를 받는가? | 시나리오별 입력/출력/산출물 | 전체 시스템 상세 구조 |
+| [docs/HERMES_SOURCE_PRIORITY.md](docs/HERMES_SOURCE_PRIORITY.md) | Hermes는 무엇을 어떤 우선순위로 수집하는가? | P0/P1/P2 소스·포맷 정책 | 보안 전 범위 |
 
 ## 현재 운영 최소 조건
 

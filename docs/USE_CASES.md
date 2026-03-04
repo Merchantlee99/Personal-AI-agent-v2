@@ -1,7 +1,7 @@
 # NanoClaw v2 Use Cases
 
 이 문서는 "사용자가 무엇을 입력하고 어떤 결과물을 받는가"를 설명합니다.
-구조는 `ARCHITECTURE.md`, 운영은 `OPERATIONS_PLAYBOOK.md`를 참고합니다.
+구조는 [ARCHITECTURE](ARCHITECTURE.md), 운영은 [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md)을 참고합니다.
 
 ## 1) 시나리오 요약표
 
@@ -86,15 +86,15 @@
 
 ```mermaid
 flowchart TD
-  B[Hermes 브리핑 도착] --> T[Telegram 메시지]
-  T --> C[Clio 저장]
-  T --> H[Hermes 더 찾아]
-  T --> M[Minerva 인사이트]
-  T --> X[텍스트 질의]
+  B["Hermes 브리핑 도착"] --> T["Telegram 메시지"]
+  T --> C["Clio 저장"]
+  T --> H["Hermes 더 찾아"]
+  T --> M["Minerva 인사이트"]
+  T --> X["텍스트 질의"]
 
-  C --> V[Obsidian + Verified Inbox]
-  H --> O[추가 소스]
-  H --> MF[Optional Minerva follow-up]
-  M --> I[결정 인사이트]
-  X --> CH[Chat history]
+  C --> V["Obsidian + Verified Inbox"]
+  H --> O["추가 소스"]
+  H --> MF["Optional Minerva follow-up"]
+  M --> I["결정 인사이트"]
+  X --> CH["Chat history"]
 ```

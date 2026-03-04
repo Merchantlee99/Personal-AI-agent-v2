@@ -63,8 +63,27 @@ for attempt in 1 2 3; do
   sleep 3
 done
 
+echo "[n8n-reset] bootstrap hermes web search workflow (force import)"
+for attempt in 1 2 3; do
+  if N8N_HERMES_SEARCH_FORCE_IMPORT=true bash scripts/n8n/bootstrap-hermes-web-search.sh >/tmp/n8n_reset_hermes_search_bootstrap.log 2>&1; then
+    cat /tmp/n8n_reset_hermes_search_bootstrap.log
+    break
+  fi
+  cat /tmp/n8n_reset_hermes_search_bootstrap.log
+  if [[ "$attempt" == "3" ]]; then
+    echo "[n8n-reset] hermes web search bootstrap failed after retries" >&2
+    exit 1
+  fi
+  echo "[n8n-reset] retry hermes web search bootstrap ($attempt/3)"
+  sleep 3
+done
+
 echo "[n8n-reset] cleanup hermes duplicates (should already be singleton)"
 N8N_WORKFLOW_NAME="Hermes Daily Briefing Workflow" bash scripts/n8n/cleanup-duplicate-workflows.sh >/tmp/n8n_reset_cleanup.log
 cat /tmp/n8n_reset_cleanup.log
+
+echo "[n8n-reset] cleanup hermes web search duplicates (should already be singleton)"
+N8N_WORKFLOW_NAME="Hermes Web Search Workflow" bash scripts/n8n/cleanup-duplicate-workflows.sh >/tmp/n8n_reset_search_cleanup.log
+cat /tmp/n8n_reset_search_cleanup.log
 
 echo "[n8n-reset] done. backup=$BACKUP_DIR"

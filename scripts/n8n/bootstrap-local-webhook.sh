@@ -8,6 +8,7 @@ WORKFLOW_FILE="${1:-n8n/workflows/nanoclaw-v2-smoke.json}"
 WORKFLOW_NAME="${N8N_BOOTSTRAP_WORKFLOW_NAME:-NanoClaw v2 Smoke Webhook}"
 WEBHOOK_PATH="${N8N_BOOTSTRAP_WEBHOOK_PATH:-nanoclaw-v2-smoke}"
 FORCE_IMPORT="${N8N_BOOTSTRAP_FORCE_IMPORT:-false}"
+ALLOW_DUPLICATE_IMPORT="${N8N_BOOTSTRAP_ALLOW_DUPLICATE_IMPORT:-false}"
 
 get_workflow_ids() {
   docker exec nanoclaw-n8n n8n list:workflow 2>/dev/null \
@@ -45,12 +46,15 @@ TARGET_FILE="shared_data/workflows/$(basename "$WORKFLOW_FILE")"
 cp "$WORKFLOW_FILE" "$TARGET_FILE"
 
 before_ids="$(get_workflow_ids || true)"
-workflow_id=""
-if [[ "$FORCE_IMPORT" != "true" ]]; then
-  workflow_id="$(printf '%s\n' "$before_ids" | awk 'NF{id=$1} END{print id}')"
+existing_workflow_id="$(printf '%s\n' "$before_ids" | awk 'NF{id=$1} END{print id}')"
+workflow_id="$existing_workflow_id"
+
+if [[ -n "$existing_workflow_id" && "$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICATE_IMPORT" != "true" ]]; then
+  echo "[bootstrap] force import requested but existing workflow found id=$existing_workflow_id"
+  echo "[bootstrap] skip import to prevent duplicate accumulation. run 'npm run n8n:reset-singleton' for clean re-import."
 fi
 
-if [[ -n "$workflow_id" ]]; then
+if [[ -n "$workflow_id" && ! ("$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICATE_IMPORT" == "true") ]]; then
   echo "[bootstrap] reusing existing workflow id=$workflow_id"
   after_ids="$before_ids"
 else

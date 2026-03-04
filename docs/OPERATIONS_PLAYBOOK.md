@@ -1,7 +1,7 @@
 # NanoClaw v2 Operations Playbook
 
 이 문서는 "지금 바로 어떻게 운영하는가"를 설명합니다.
-아키텍처 설명은 `ARCHITECTURE.md`를 봅니다.
+아키텍처/보안/시나리오는 [ARCHITECTURE](ARCHITECTURE.md), [SECURITY_BASELINE](SECURITY_BASELINE.md), [USE_CASES](USE_CASES.md)를 봅니다.
 
 ## 1) 운영 최소 조건 (반드시 유지)
 
@@ -119,9 +119,9 @@ npm run security:branch-protect
 
 ```mermaid
 flowchart LR
-  BOOT[Boot] --> HEALTH[Health]
-  HEALTH --> FLOW[Orchestration/Telegram]
-  FLOW --> AGENT[Agent pipeline]
-  AGENT --> SEC[Security checks]
-  SEC --> READY[Operational Ready]
+  BOOT["Boot"] --> HEALTH["Health"]
+  HEALTH --> FLOW["Orchestration/Telegram"]
+  FLOW --> AGENT["Agent pipeline"]
+  AGENT --> SEC["Security checks"]
+  SEC --> READY["Operational Ready"]
 ```

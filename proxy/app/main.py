@@ -9,7 +9,8 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from .agents import AGENT_REGISTRY, normalize_agent_id
 from .llm_client import FatalLLMError, RetryableLLMError, generate_agent_reply
-from .models import AgentRequest, AgentResponse, SearchRequest, SearchResponse, SearchResult
+from .models import AgentRequest, AgentResponse, SearchRequest, SearchResponse
+from .search_client import SearchProviderError, get_search_results
 from .security import verify_internal_request
 
 app = FastAPI(title="nanoclaw-llm-proxy", version="2.0.0")
@@ -189,6 +190,7 @@ def agent_reply(
                 role_boundary=ROLE_BOUNDARY[normalized],
                 message=payload.message,
                 history=payload.history,
+                memory_context=payload.memory_context,
             )
             if index > 0:
                 logger.warning(
@@ -266,18 +268,17 @@ def search_data(
     payload: SearchRequest,
     _: Annotated[None, Depends(verify_internal_request)],
 ) -> SearchResponse:
-    # External search responses are transformed into inert data records.
-    sanitized_results: list[SearchResult] = []
-    for index in range(payload.max_results):
-        sanitized_results.append(
-            SearchResult(
-                title=f"Search sample {index + 1}",
-                url=f"https://example.com/search/{index + 1}",
-                snippet=(
-                    f"Query={payload.query}. Potential prompt-like text is preserved as plain data, "
-                    "never executed as an instruction."
-                ),
-            )
+    try:
+        sanitized_results, provider, filter_stats = get_search_results(
+            query=payload.query,
+            max_results=payload.max_results,
         )
+    except SearchProviderError as exc:
+        raise HTTPException(status_code=502, detail=f"search provider failure: {exc}") from exc
 
-    return SearchResponse(query=payload.query, results=sanitized_results)
+    return SearchResponse(
+        query=payload.query,
+        results=sanitized_results,
+        provider=provider,
+        filter_stats=filter_stats,
+    )

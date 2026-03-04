@@ -1,0 +1,126 @@
+{
+  "name": "Hermes Web Search Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hermes-web-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "Webhook_HermesSearch",
+      "name": "Webhook Search",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "hermes-web-search"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\n\nconst parseMaybeJson = (value) => {\n  if (typeof value !== 'string') {\n    return value;\n  }\n  try {\n    return JSON.parse(value);\n  } catch {\n    return value;\n  }\n};\n\nconst root = parseMaybeJson(incoming);\nconst bodyRaw = parseMaybeJson(root?.body ?? root?.payload ?? root);\nconst body = bodyRaw && typeof bodyRaw === 'object' ? bodyRaw : {};\n\nconst requestedQuery = String(\n  body.query\n  ?? body.topic\n  ?? root?.query\n  ?? root?.topic\n  ?? 'latest ai agent trends'\n);\nconst requestedMax = Number(body.max_results ?? root?.max_results ?? 8);\nconst maxResults = Number.isFinite(requestedMax)\n  ? Math.min(Math.max(Math.trunc(requestedMax), 1), 10)\n  : 8;\n\nconst INJECTION_PATTERNS = [\n  /ignore\\s+(all\\s+)?(previous|above|system|developer)\\s+instructions?/gi,\n  /system\\s+prompt/gi,\n  /developer\\s+message/gi,\n  /<script[\\s\\S]*?>[\\s\\S]*?<\\/script>/gi,\n  /javascript:/gi,\n  /\\b(bash|sudo|rm\\s+-rf|curl\\s+https?:\\/\\/|wget\\s+https?:\\/\\/)\\b/gi,\n];\n\nconst securityStats = {\n  input_count: 0,\n  kept_count: 0,\n  dropped_count: 0,\n  dropped_unsafe_url: 0,\n  prompt_like_removed: 0,\n  source_provider: 'request',\n};\n\nconst compact = (value) => String(value ?? '')\n  .replace(/[\\u0000-\\u001F\\u007F]+/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst sanitizeQuery = (value) => {\n  let text = String(value ?? '');\n  for (const pattern of INJECTION_PATTERNS) {\n    const before = text;\n    text = text.replace(pattern, ' ');\n    if (before !== text) {\n      securityStats.prompt_like_removed += 1;\n    }\n  }\n  return compact(text);\n};\n\nconst query = sanitizeQuery(requestedQuery).slice(0, 140) || 'latest ai agent trends';\n\nreturn [\n  {\n    json: {\n      query,\n      max_results: maxResults,\n      requested_at: new Date().toISOString(),\n      security_stats: securityStats,\n    },\n  },\n];"
+      },
+      "id": "Code_NormalizeSearch",
+      "name": "Normalize Search Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst query = String(data.query ?? 'latest ai agent trends');\nconst requestedAt = data.requested_at ?? new Date().toISOString();\nconst maxResults = Number.isFinite(Number(data.max_results))\n  ? Math.min(Math.max(Math.trunc(Number(data.max_results)), 1), 10)\n  : 8;\nconst securityStats = {\n  ...(data.security_stats ?? {}),\n};\n\nconst provider = String($env.HERMES_SEARCH_PROVIDER || $env.SEARCH_PROVIDER || 'auto').trim().toLowerCase() || 'auto';\nconst tavilyKey = String($env.TAVILY_API_KEY || '').trim();\nconst tavilyBase = String($env.TAVILY_API_BASE || 'https://api.tavily.com').replace(/\\/+$/, '');\nconst tavilyDepth = String($env.TAVILY_SEARCH_DEPTH || 'basic').trim() || 'basic';\nconst useTavily = (provider === 'tavily' || provider === 'auto') && tavilyKey.length > 0;\nsecurityStats.source_provider = useTavily ? 'tavily' : 'hn_algolia';\n\nconst INJECTION_PATTERNS = [\n  /ignore\\s+(all\\s+)?(previous|above|system|developer)\\s+instructions?/gi,\n  /system\\s+prompt/gi,\n  /developer\\s+message/gi,\n  /<script[\\s\\S]*?>[\\s\\S]*?<\\/script>/gi,\n  /javascript:/gi,\n  /\\b(bash|sudo|rm\\s+-rf|curl\\s+https?:\\/\\/|wget\\s+https?:\\/\\/)\\b/gi,\n];\n\nconst compact = (value) => String(value ?? '')\n  .replace(/[\\u0000-\\u001F\\u007F]+/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst sanitizeText = (value, maxLen) => {\n  let text = String(value ?? '');\n  for (const pattern of INJECTION_PATTERNS) {\n    const before = text;\n    text = text.replace(pattern, ' ');\n    if (before !== text) {\n      securityStats.prompt_like_removed = Number(securityStats.prompt_like_removed ?? 0) + 1;\n    }\n  }\n  const normalized = compact(text);\n  return normalized.length > maxLen ? `${normalized.slice(0, maxLen - 1).trimEnd()}…` : normalized;\n};\n\nconst isSafeUrl = (value) => {\n  const raw = String(value ?? '').trim();\n  if (!/^https?:\\/\\//i.test(raw)) {\n    return false;\n  }\n  const withoutScheme = raw.replace(/^https?:\\/\\//i, '');\n  const authority = withoutScheme.split('/')[0] || '';\n  const hostPort = authority.includes('@') ? authority.split('@').pop() : authority;\n  const host = String((hostPort || '').split(':')[0] || '').toLowerCase();\n  if (!host || host === 'localhost' || host.endsWith('.local')) {\n    return false;\n  }\n  if (/^127\\./.test(host) || /^10\\./.test(host) || /^192\\.168\\./.test(host)) {\n    return false;\n  }\n  if (/^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(host)) {\n    return false;\n  }\n  if (/^169\\.254\\./.test(host) || host === '::1') {\n    return false;\n  }\n  return true;\n};\n\nconst sanitizeCandidate = (entry, fallbackTitle) => {\n  const title = sanitizeText(entry?.title ?? fallbackTitle, 180);\n  const url = String(entry?.url ?? '').trim();\n  const snippet = sanitizeText(entry?.snippet ?? entry?.content ?? '', 420);\n  if (!title || !url || !isSafeUrl(url)) {\n    securityStats.dropped_count = Number(securityStats.dropped_count ?? 0) + 1;\n    if (url && !isSafeUrl(url)) {\n      securityStats.dropped_unsafe_url = Number(securityStats.dropped_unsafe_url ?? 0) + 1;\n    }\n    return null;\n  }\n  return {\n    title,\n    url,\n    snippet: snippet || '요약 정보 없음',\n  };\n};\n\nlet rawItems = [];\ntry {\n  if (useTavily) {\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${tavilyBase}/search`,\n      body: {\n        api_key: tavilyKey,\n        query,\n        search_depth: tavilyDepth,\n        max_results: maxResults,\n        include_answer: false,\n        include_raw_content: false,\n      },\n      json: true,\n      timeout: 8000,\n    });\n    const results = Array.isArray(response?.results) ? response.results : [];\n    rawItems = results.map((entry, idx) => ({\n      title: String(entry?.title ?? `tavily-item-${idx + 1}`).trim(),\n      url: String(entry?.url ?? '').trim(),\n      snippet: String(entry?.content ?? entry?.snippet ?? '').trim(),\n    }));\n  } else {\n    const response = await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://hn.algolia.com/api/v1/search',\n      qs: {\n        query,\n        tags: 'story',\n        hitsPerPage: maxResults,\n      },\n      json: true,\n      timeout: 7000,\n    });\n    const hits = Array.isArray(response?.hits) ? response.hits : [];\n    rawItems = hits.map((hit, idx) => ({\n      title: String(hit?.title || hit?.story_title || `hn-story-${idx + 1}`).trim(),\n      url: String(hit?.url || hit?.story_url || '').trim(),\n      snippet: String(hit?._highlightResult?.title?.value || hit?.comment_text || '').replace(/<[^>]+>/g, ' ').trim(),\n    }));\n  }\n} catch (error) {\n  rawItems = [];\n  securityStats.fetch_error = String(error?.message ?? 'fetch_failed').slice(0, 180);\n}\n\nsecurityStats.input_count = rawItems.length;\nconst items = rawItems\n  .map((entry, idx) => sanitizeCandidate(entry, `item-${idx + 1}`))\n  .filter((entry) => entry)\n  .slice(0, maxResults);\nsecurityStats.kept_count = items.length;\n\nreturn [\n  {\n    json: {\n      query,\n      requested_at: requestedAt,\n      generated_at: new Date().toISOString(),\n      provider: securityStats.source_provider,\n      items,\n      security_stats: securityStats,\n    },\n  },\n];"
+      },
+      "id": "Code_FetchSearch",
+      "name": "Fetch Search Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst items = Array.isArray(data.items) ? data.items : [];\n\nreturn [\n  {\n    json: {\n      ok: true,\n      source: 'n8n-local',\n      workflow: 'hermes-web-search',\n      data_contract: 'inert_search_records_only',\n      query: data.query ?? null,\n      provider: data.provider ?? 'unknown',\n      count: items.length,\n      items,\n      requested_at: data.requested_at ?? null,\n      generated_at: data.generated_at ?? new Date().toISOString(),\n      security_stats: data.security_stats ?? null,\n    },\n  },\n];"
+      },
+      "id": "Code_BuildSearchResponse",
+      "name": "Build Search Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "Respond_HermesSearch",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1320,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Search": {
+      "main": [
+        [
+          {
+            "node": "Normalize Search Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Search Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Search Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Search Signals": {
+      "main": [
+        [
+          {
+            "node": "Build Search Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -119,7 +119,7 @@
 - Inline Keyboard 액션 3종 고정
   - `[Clio에 저장]` -> Clio inbox task 생성
   - `[Hermes, 더 파고들어 줘]` -> Hermes deep-dive task 생성
-  - `[이 주제 알림 끄기]` -> topic cooldown 강제 적용
+  - `[Minerva, 이것 인사이트 분석해줘]` -> Minerva insight task 생성
 - callback_data는 `action:event_id` 형식으로 제한
 
 ### Phase 6 (Hermes -> Clio 지식 연결)
@@ -158,3 +158,12 @@
 5. Minerva 발신 포맷 고정
    - 헤더/과도한 마크다운 제거
    - 출처 + 인사이트를 포함한 자연어 브리핑 템플릿 적용
+6. Google Calendar read-only OAuth 베이스
+   - `/api/integrations/google-calendar/oauth/start|callback|today`
+   - scope는 `calendar.readonly`로 고정
+7. Minerva Morning Calendar 합성
+   - Morning theme(`05~12`) 즉시 브리핑에 당일 캘린더 요약을 주입
+8. Hermes 고임팩트 auto Clio 저장
+   - `priority=high|critical` + impact/tag 조건 시 `createInboxTask(clio)` 자동 생성
+9. n8n 스케줄 자동화 고정
+   - Hermes workflow에 오전/오후 KST 스케줄 트리거 내장
