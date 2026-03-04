@@ -57,6 +57,9 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(outbox_payload["deepl_target_lang"], "KO")
             self.assertTrue(outbox_payload["deepl_required"])
             self.assertFalse(outbox_payload["deepl_applied"])
+            self.assertIsInstance(outbox_payload["knowledge_entities"], list)
+            self.assertIsInstance(outbox_payload["knowledge_related_entities"], list)
+            self.assertIsNotNone(outbox_payload["knowledge_graph_file"])
             self.assertIsNotNone(outbox_payload["verified_file"])
 
             vault_path = root / outbox_payload["vault_file"]
@@ -67,6 +70,7 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertIn("https://example.com/report", vault_body)
             self.assertIn('source_language: "en"', vault_body)
             self.assertIn("deepl_required: true", vault_body)
+            self.assertIn("## Clio Knowledge Graph", vault_body)
 
             verified_files = sorted(verified.glob("*.json"))
             self.assertEqual(len(verified_files), 1)
@@ -78,6 +82,9 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(verified_payload["source_language"], "en")
             self.assertTrue(verified_payload["deepl"]["required"])
             self.assertFalse(verified_payload["deepl"]["applied"])
+            self.assertIn("knowledge_graph", verified_payload)
+            self.assertIn("entities", verified_payload["knowledge_graph"])
+            self.assertIn("graph_file", verified_payload["knowledge_graph"])
 
             archive_files = sorted(archive.glob("*.json"))
             self.assertEqual(len(archive_files), 1)

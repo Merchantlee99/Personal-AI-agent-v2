@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "capabilities": {
+    "knowledge.store_obsidian": {
+      "display_name": "Store to Clio Obsidian",
+      "owners": ["minerva", "clio"],
+      "target_agent_id": "clio",
+      "adapter": "inbox_task_v1",
+      "reason": "capability_knowledge_store_obsidian"
+    },
+    "research.deep_dive": {
+      "display_name": "Hermes Deep Dive",
+      "owners": ["minerva", "hermes"],
+      "target_agent_id": "hermes",
+      "adapter": "inbox_task_v1",
+      "reason": "capability_research_deep_dive"
+    },
+    "analysis.minerva_insight": {
+      "display_name": "Minerva Insight Analysis",
+      "owners": ["minerva"],
+      "target_agent_id": "minerva",
+      "adapter": "inbox_task_v1",
+      "reason": "capability_analysis_minerva_insight"
+    },
+    "notify.telegram_briefing": {
+      "display_name": "Telegram Briefing Dispatch",
+      "owners": ["minerva"],
+      "target_agent_id": "minerva",
+      "adapter": "channel_telegram_v1",
+      "reason": "capability_notify_telegram_briefing"
+    }
+  }
+}

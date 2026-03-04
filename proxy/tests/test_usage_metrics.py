@@ -23,6 +23,7 @@ class UsageMetricsTests(unittest.TestCase):
             selected_model="gemini-2.5-flash",
             status="success",
             quota_429_hits=1,
+            latency_ms=123.4,
         )
 
         path = Path(main.METRICS_STORE_PATH)
@@ -37,6 +38,10 @@ class UsageMetricsTests(unittest.TestCase):
         self.assertEqual(entry["success"], 1)
         self.assertEqual(entry["quota_429"], 1)
         self.assertEqual(entry["fallback_applied"], 1)
+        self.assertEqual(entry["latency_ms_count"], 1)
+        self.assertGreater(entry["latency_ms_total"], 123.0)
+        self.assertGreater(entry["latency_ms_max"], 123.0)
+        self.assertEqual(len(entry["latency_ms_samples"]), 1)
         self.assertEqual(entry["per_agent"]["clio"], 1)
         self.assertEqual(entry["per_model"]["gemini-2.5-flash"], 1)
 

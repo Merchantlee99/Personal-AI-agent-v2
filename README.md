@@ -1,71 +1,93 @@
 # NanoClaw v2
 
 NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 에이전트를 역할 분리해 운영하는 로컬 우선 오케스트레이션 시스템입니다.
+핵심은 "보안 경계는 강화하고, 스파게티 결합은 제거"입니다.
 
-핵심 원칙
-- Canonical Agent ID 고정: `minerva`, `clio`, `hermes`
-- 모델 호출 단일 게이트: Next.js -> `llm-proxy`
-- 외부 수집 결과 Zero-Trust: 명령이 아닌 데이터로만 처리
-- 최소 권한 런타임: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`
+## v1 대비 핵심 개선
 
-## 30초 구조
+| 항목 | 이전(문제) | 현재(v2) | 왜 중요한가 |
+|---|---|---|---|
+| Agent ID | 곳곳에 중복/드리프트 | Canonical only (`minerva/clio/hermes`) | 역할 혼선/오작동 방지 |
+| LLM 호출 경로 | 호출 경로 분산 | Next.js -> llm-proxy 단일 게이트 | 보안/관측/재시도 일원화 |
+| 정책 판단 | 라우트별 분산 규칙 | 중앙 Policy Engine | 동작 일관성/디버깅 단순화 |
+| 이벤트 계약 | 암묵적 JSON | Event Contract v1 + strict 게이트 | 워크플로 변경 시 런타임 장애 감소 |
+| Telegram 고위험 액션 | 단발 실행 위험 | 2단계 승인 + TTL + 프론트 에스컬레이션 | 오발송/오실행 방지 |
+| 확장 구조 | 하드코딩 분기 누적 | Capability Registry + Adapter | 기능 추가 시 코어 수정 최소화 |
+| 메모리 운영 | 누적 비용 급증 | 2단계 압축(저비용 선처리 -> 고성능 추론) | 비용/지연 안정화 |
+| 운영 관측성 | 체감 기반 운영 | runtime-metrics (LLM/오케스트레이션/DeepL) | 장애 탐지/튜닝 속도 향상 |
+
+## 30초 아키텍처
+
 ```mermaid
 flowchart LR
-  U["User"] --> FE["Next.js UI/API"]
-  FE --> PX["llm-proxy"]
-  PX --> LLM["Gemini / Anthropic"]
+  subgraph EDGE["Edge"]
+    U["User (Web / Telegram)"]
+    N8N["n8n Scheduler / Webhook"]
+  end
 
-  N8N["n8n schedule/webhook"] --> ORCH["/api/orchestration/events"]
-  ORCH --> TG["Telegram"]
-  TG --> TGC["/api/telegram/webhook"]
-  TGC --> INBOX["shared_data/inbox"]
-  INBOX --> AG["nanoclaw-agent"]
-  AG --> ARTIFACTS["obsidian_vault / outbox / verified_inbox"]
-```
+  subgraph CORE["NanoClaw Core (Next.js API)"]
+    CHAT["/api/chat"]
+    ORCH["/api/orchestration/events"]
+    TGW["/api/telegram/webhook"]
+    MET["/api/runtime-metrics"]
+  end
 
-## 바로 실행
-```bash
-npm run runtime:prepare
-docker compose build
-docker compose up -d
+  subgraph PROXY["llm-proxy (FastAPI)"]
+    AGENTAPI["/api/agent /api/agents /api/search"]
+  end
+
+  subgraph WORKER["nanoclaw-agent"]
+    WD["watchdog inbox processor"]
+  end
+
+  subgraph DATA["shared_data"]
+    INBOX["inbox"]
+    OUT["outbox / verified_inbox / archive"]
+    VAULT["obsidian_vault"]
+    MEM["shared_memory"]
+  end
+
+  U --> CHAT
+  U --> TGW
+  N8N --> ORCH
+
+  CHAT --> AGENTAPI
+  ORCH --> AGENTAPI
+  TGW --> AGENTAPI
+
+  ORCH --> INBOX
+  TGW --> INBOX
+  INBOX --> WD
+  WD --> OUT
+  WD --> VAULT
+
+  ORCH --> MEM
+  TGW --> MEM
+  MET --> MEM
 ```
 
 ## 문서 읽는 순서
 
-| 문서 | 이 문서가 답하는 질문 | 포함 | 제외 |
-|---|---|---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 시스템이 어떻게 연결되는가? | 컴포넌트, 데이터 플로우, 경계 | 장애 대응 절차, 운영 커맨드 |
-| [docs/SECURITY_BASELINE.md](docs/SECURITY_BASELINE.md) | 무엇을 어떻게 막는가? | 위협-통제 매핑, 검증 체인 | 서비스 기동 순서 |
-| [docs/OPERATIONS_PLAYBOOK.md](docs/OPERATIONS_PLAYBOOK.md) | 오늘 바로 어떻게 운영하는가? | Day-1/Day-2 절차, 트러블슈팅 | 내부 설계 배경 |
-| [docs/USE_CASES.md](docs/USE_CASES.md) | 사용자가 어떤 결과를 받는가? | 시나리오별 입력/출력/산출물 | 전체 시스템 상세 구조 |
-| [docs/HERMES_SOURCE_PRIORITY.md](docs/HERMES_SOURCE_PRIORITY.md) | Hermes는 무엇을 어떤 우선순위로 수집하는가? | P0/P1/P2 소스·포맷 정책 | 보안 전 범위 |
+1. [docs/V2_REBUILD_REPORT.md](docs/V2_REBUILD_REPORT.md): 무엇이 왜 바뀌었는지(의사결정 중심)
+2. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): 컴포넌트/데이터 플로우/책임 경계
+3. [docs/SECURITY_BASELINE.md](docs/SECURITY_BASELINE.md): 위협-통제 매핑/검증 체인
+4. [docs/OPERATIONS_PLAYBOOK.md](docs/OPERATIONS_PLAYBOOK.md): Day-1/Day-2 운영 절차
+5. [docs/USE_CASES.md](docs/USE_CASES.md): 실제 사용자 시나리오/산출물
+6. [docs/HERMES_SOURCE_PRIORITY.md](docs/HERMES_SOURCE_PRIORITY.md): Hermes 수집 우선순위 정책
 
-## 현재 운영 최소 조건
+## 빠른 기동
 
-아래 4개가 살아 있어야 실사용이 됩니다.
-1. 컨테이너: `nanoclaw-frontend`, `nanoclaw-agent`, `nanoclaw-llm-proxy`, `nanoclaw-n8n`
-2. 프론트/API: `http://127.0.0.1:3000` (`next start`, 컨테이너 내부)
-3. (외부 Telegram webhook 사용 시) 공개 HTTPS 터널 1개
-
-참고
-- 컨테이너는 `docker compose up -d`로 띄우면 터미널 종료 후에도 유지됩니다.
-- UI 병렬 개발이 필요하면 별도 포트로 `npm run dev -- --hostname 127.0.0.1 --port 3030`를 사용합니다.
-
-## 최신 반영 포인트
-- Telegram 인라인 버튼
-  - `Clio, 옵시디언에 저장해`
-  - `Hermes, 더 찾아`
-  - `Minerva, 인사이트 분석해`
-- Hermes 딥다이브 후 Minerva 후속 분석 자동 생성 옵션
-  - `HERMES_DEEP_DIVE_AUTO_MINERVA=true`
-- DeepL 번역 절감 정책
-  - `P0`: summary + 상위 2개 snippet
-  - `P1`: summary + 상위 1개 snippet
-  - `P2`: 자동 번역 없음
+```bash
+npm run runtime:prepare
+docker compose build
+docker compose up -d
+docker compose ps
+```
 
 ## 기본 검증
+
 ```bash
-npm run verify:smoke
+npm run verify:event-contract
 npm run verify:orchestration
 npm run verify:telegram:inline
 npm run security:check-orchestration

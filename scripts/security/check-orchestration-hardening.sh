@@ -80,6 +80,77 @@ if value < 0 or value > 1:
 print(f"[security-orch] OK HERMES_AUTO_CLIO_SAVE_MIN_IMPACT={value}")
 PY
 
+MIN_ALERT_SCORE_RAW="$(get_env MINERVA_IMMEDIATE_MIN_ALERT_SCORE)"
+MIN_ALERT_SCORE="${MIN_ALERT_SCORE_RAW:-78}"
+if ! [[ "$MIN_ALERT_SCORE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "[security-orch] FAIL MINERVA_IMMEDIATE_MIN_ALERT_SCORE must be numeric" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK MINERVA_IMMEDIATE_MIN_ALERT_SCORE=${MIN_ALERT_SCORE}"
+fi
+
+DIGEST_ALERT_SCORE_RAW="$(get_env MINERVA_DIGEST_MIN_ALERT_SCORE)"
+DIGEST_ALERT_SCORE="${DIGEST_ALERT_SCORE_RAW:-55}"
+if ! [[ "$DIGEST_ALERT_SCORE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "[security-orch] FAIL MINERVA_DIGEST_MIN_ALERT_SCORE must be numeric" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK MINERVA_DIGEST_MIN_ALERT_SCORE=${DIGEST_ALERT_SCORE}"
+fi
+
+MINERVA_PREPROCESS_ENABLED="$(normalize_bool "$(get_env MINERVA_PREPROCESS_ENABLED)")"
+if [[ -z "$MINERVA_PREPROCESS_ENABLED" ]]; then
+  MINERVA_PREPROCESS_ENABLED="true"
+fi
+if [[ "$MINERVA_PREPROCESS_ENABLED" == "true" ]]; then
+  PREPROCESS_MODEL="$(get_env MINERVA_PREPROCESS_MODEL)"
+  if [[ -z "$PREPROCESS_MODEL" ]]; then
+    echo "[security-orch] WARN MINERVA_PREPROCESS_MODEL unset; code default(claude-haiku-4-5) will be used"
+  else
+    echo "[security-orch] OK MINERVA_PREPROCESS_MODEL=${PREPROCESS_MODEL}"
+  fi
+  PREPROCESS_TRIGGER_RAW="$(get_env MINERVA_PREPROCESS_TRIGGER_CHARS)"
+  PREPROCESS_TRIGGER="${PREPROCESS_TRIGGER_RAW:-2200}"
+  if ! [[ "$PREPROCESS_TRIGGER" =~ ^[0-9]+$ ]]; then
+    echo "[security-orch] FAIL MINERVA_PREPROCESS_TRIGGER_CHARS must be integer" >&2
+    FAIL=1
+  else
+    echo "[security-orch] OK MINERVA_PREPROCESS_TRIGGER_CHARS=${PREPROCESS_TRIGGER}"
+  fi
+fi
+
+FALLBACK_POLICY="$(printf '%s' "$(get_env MODEL_FALLBACK_POLICY)" | tr '[:upper:]' '[:lower:]' | xargs)"
+if [[ -z "$FALLBACK_POLICY" ]]; then
+  FALLBACK_POLICY="quota_only"
+fi
+if [[ "$FALLBACK_POLICY" != "quota_only" && "$FALLBACK_POLICY" != "retryable" ]]; then
+  echo "[security-orch] FAIL MODEL_FALLBACK_POLICY must be quota_only or retryable" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK MODEL_FALLBACK_POLICY=${FALLBACK_POLICY}"
+fi
+
+FALLBACK_RETRYABLE_AGENTS="$(printf '%s' "$(get_env MODEL_FALLBACK_RETRYABLE_AGENTS)" | tr '[:upper:]' '[:lower:]' | xargs)"
+if [[ -z "$FALLBACK_RETRYABLE_AGENTS" ]]; then
+  FALLBACK_RETRYABLE_AGENTS="clio,hermes"
+fi
+echo "[security-orch] OK MODEL_FALLBACK_RETRYABLE_AGENTS=${FALLBACK_RETRYABLE_AGENTS}"
+if [[ "$FALLBACK_POLICY" == "retryable" ]]; then
+  if [[ "$FALLBACK_RETRYABLE_AGENTS" != *"clio"* || "$FALLBACK_RETRYABLE_AGENTS" != *"hermes"* ]]; then
+    echo "[security-orch] FAIL retryable policy requires clio,hermes in MODEL_FALLBACK_RETRYABLE_AGENTS" >&2
+    FAIL=1
+  fi
+fi
+
+FALLBACK_QUOTA_MIN_HITS_RAW="$(get_env MODEL_FALLBACK_QUOTA_MIN_HITS)"
+FALLBACK_QUOTA_MIN_HITS="${FALLBACK_QUOTA_MIN_HITS_RAW:-1}"
+if ! [[ "$FALLBACK_QUOTA_MIN_HITS" =~ ^[0-9]+$ ]] || [[ "$FALLBACK_QUOTA_MIN_HITS" -lt 1 ]]; then
+  echo "[security-orch] FAIL MODEL_FALLBACK_QUOTA_MIN_HITS must be integer >= 1" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK MODEL_FALLBACK_QUOTA_MIN_HITS=${FALLBACK_QUOTA_MIN_HITS}"
+fi
+
 require_non_empty ORCHESTRATION_EVENT_URL
 EXPECTED_ORCH_URL="http://frontend:3000/api/orchestration/events"
 CURRENT_ORCH_URL="$(get_env ORCHESTRATION_EVENT_URL)"
@@ -89,6 +160,25 @@ if [[ "$CURRENT_ORCH_URL" != "$EXPECTED_ORCH_URL" ]]; then
   FAIL=1
 else
   echo "[security-orch] OK ORCHESTRATION_EVENT_URL uses frontend internal DNS"
+fi
+
+PRIMARY_CHANNEL="$(printf '%s' "$(get_env ORCHESTRATION_PRIMARY_CHANNEL)" | tr '[:upper:]' '[:lower:]' | xargs)"
+if [[ -z "$PRIMARY_CHANNEL" ]]; then
+  PRIMARY_CHANNEL="telegram"
+fi
+if [[ "$PRIMARY_CHANNEL" != "telegram" ]]; then
+  echo "[security-orch] FAIL ORCHESTRATION_PRIMARY_CHANNEL must be telegram (current=${PRIMARY_CHANNEL})" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK ORCHESTRATION_PRIMARY_CHANNEL=${PRIMARY_CHANNEL}"
+fi
+
+ORCH_SCHEMA_STRICT="$(normalize_bool "$(get_env ORCH_REQUIRE_SCHEMA_V1)")"
+if [[ "$ORCH_SCHEMA_STRICT" != "true" ]]; then
+  echo "[security-orch] FAIL ORCH_REQUIRE_SCHEMA_V1 must be true" >&2
+  FAIL=1
+else
+  echo "[security-orch] OK ORCH_REQUIRE_SCHEMA_V1=true"
 fi
 
 EXPECTED_TZ="Asia/Seoul"
@@ -180,8 +270,21 @@ PY
 NOTEBOOKLM_SYNC="$(normalize_bool "$(get_env NOTEBOOKLM_SYNC_ENABLED)")"
 if [[ "$NOTEBOOKLM_SYNC" == "true" ]]; then
   require_non_empty NOTEBOOKLM_INGEST_WEBHOOK_URL
+  echo "[security-orch] OK NOTEBOOKLM_SYNC_ENABLED=true"
+elif [[ "$NOTEBOOKLM_SYNC" == "false" ]]; then
+  echo "[security-orch] OK NOTEBOOKLM_SYNC_ENABLED=false (disabled by policy)"
 else
-  echo "[security-orch] WARN NOTEBOOKLM_SYNC_ENABLED is not true"
+  echo "[security-orch] WARN NOTEBOOKLM_SYNC_ENABLED is unset/invalid; expected true or false"
+fi
+
+CLIO_KG_ENABLED="$(normalize_bool "$(get_env CLIO_KG_ENABLED)")"
+if [[ -z "$CLIO_KG_ENABLED" ]]; then
+  CLIO_KG_ENABLED="true"
+fi
+if [[ "$CLIO_KG_ENABLED" != "true" ]]; then
+  echo "[security-orch] WARN CLIO_KG_ENABLED is not true"
+else
+  echo "[security-orch] OK CLIO_KG_ENABLED=true"
 fi
 
 TELEGRAM_TOKEN="$(get_env TELEGRAM_BOT_TOKEN)"
@@ -195,6 +298,14 @@ if [[ -n "$TELEGRAM_TOKEN" ]]; then
     FAIL=1
   else
     echo "[security-orch] OK TELEGRAM_ALLOWED_CALLBACK_ACTIONS contains required actions"
+  fi
+  APPROVAL_TTL_RAW="$(get_env TELEGRAM_APPROVAL_TTL_SEC)"
+  APPROVAL_TTL="${APPROVAL_TTL_RAW:-300}"
+  if ! [[ "$APPROVAL_TTL" =~ ^[0-9]+$ ]] || [[ "$APPROVAL_TTL" -ne 300 ]]; then
+    echo "[security-orch] FAIL TELEGRAM_APPROVAL_TTL_SEC must be 300 (5 minutes)" >&2
+    FAIL=1
+  else
+    echo "[security-orch] OK TELEGRAM_APPROVAL_TTL_SEC=300"
   fi
 else
   echo "[security-orch] WARN TELEGRAM_BOT_TOKEN is empty; telegram hardening checks skipped"

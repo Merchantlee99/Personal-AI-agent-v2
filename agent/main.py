@@ -33,6 +33,17 @@ class ClioPipelineResult:
     deepl_target_lang: str
     deepl_required: bool
     deepl_applied: bool
+    knowledge_entities: list[str]
+    knowledge_related_entities: list[str]
+    knowledge_graph_file: str | None
+
+
+@dataclass
+class ClioKnowledgeGraphResult:
+    entities: list[str]
+    related_entities: list[str]
+    related_links: list[str]
+    graph_file: str | None
 
 
 TAG_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -55,6 +66,33 @@ LINK_RULES: tuple[tuple[str, str], ...] = (
 )
 
 URL_PATTERN = re.compile(r"https?://[^\s)>]+")
+CLIO_KG_STOPWORDS = {
+    "https",
+    "http",
+    "www",
+    "com",
+    "co",
+    "kr",
+    "org",
+    "net",
+    "report",
+    "analysis",
+    "summary",
+    "briefing",
+    "trend",
+    "trends",
+    "today",
+    "update",
+    "notes",
+    "message",
+    "title",
+    "source",
+    "clio",
+    "hermes",
+    "minerva",
+    "agent",
+    "agents",
+}
 
 
 def parse_bool_env(name: str, default: bool = False) -> bool:
@@ -142,6 +180,200 @@ def _truncate_text(value: str, max_len: int) -> str:
 
 def _extract_tokens(value: str) -> list[str]:
     return re.findall(r"[0-9A-Za-z가-힣-]{3,}", value.lower())
+
+
+def _slugify_entity(value: str) -> str:
+    token = re.sub(r"[^0-9A-Za-z가-힣-]+", "-", value.strip().lower()).strip("-")
+    if not token:
+        return "entity"
+    return token[:48]
+
+
+def _json_atomic_write(path: Path, payload: dict[str, object]) -> None:
+    ensure_dir(path.parent)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _read_json_file(path: Path, fallback: dict[str, object]) -> dict[str, object]:
+    if not path.exists():
+        return fallback
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    if not isinstance(payload, dict):
+        return fallback
+    return payload
+
+
+def _extract_graph_entities(message: str, tags: list[str], max_entities: int) -> list[str]:
+    entities: list[str] = []
+    for token in _extract_tokens(message):
+        if token in CLIO_KG_STOPWORDS:
+            continue
+        if len(token) < 4 or token.isdigit():
+            continue
+        if token.startswith("202"):
+            continue
+        entities.append(token)
+
+    for tag in tags:
+        normalized = tag.strip().lstrip("#").lower()
+        if not normalized or normalized in CLIO_KG_STOPWORDS:
+            continue
+        if len(normalized) < 4:
+            continue
+        entities.append(normalized)
+
+    deduped = _dedupe_preserve_order(entities)
+    return deduped[: max(2, max_entities)]
+
+
+def update_clio_knowledge_graph(message: str, tags: list[str], vault_dir: Path) -> ClioKnowledgeGraphResult:
+    if not parse_bool_env("CLIO_KG_ENABLED", True):
+        return ClioKnowledgeGraphResult(entities=[], related_entities=[], related_links=[], graph_file=None)
+
+    max_entities = 12
+    try:
+        max_entities = max(2, int(os.getenv("CLIO_KG_MAX_ENTITIES_PER_NOTE", "12").strip()))
+    except ValueError:
+        max_entities = 12
+
+    entities = _extract_graph_entities(message, tags, max_entities)
+    if not entities:
+        return ClioKnowledgeGraphResult(entities=[], related_entities=[], related_links=[], graph_file=None)
+
+    graph_path = vault_dir.parent / "shared_memory" / "clio_knowledge_graph.json"
+    now_iso = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    graph = _read_json_file(
+        graph_path,
+        {
+            "version": "1.0",
+            "updated_at": now_iso,
+            "nodes": {},
+            "edges": {},
+        },
+    )
+
+    nodes_raw = graph.get("nodes")
+    edges_raw = graph.get("edges")
+    nodes = nodes_raw if isinstance(nodes_raw, dict) else {}
+    edges = edges_raw if isinstance(edges_raw, dict) else {}
+
+    entity_slugs: list[str] = []
+    for entity in entities:
+        slug = _slugify_entity(entity)
+        entity_slugs.append(slug)
+        node_raw = nodes.get(slug)
+        node = node_raw if isinstance(node_raw, dict) else {}
+        aliases_raw = node.get("aliases")
+        aliases = aliases_raw if isinstance(aliases_raw, list) else []
+        if entity not in aliases:
+            aliases = _dedupe_preserve_order([*aliases, entity])[:8]
+        nodes[slug] = {
+            "entity": str(node.get("entity") or entity),
+            "count": int(node.get("count", 0)) + 1,
+            "last_seen": now_iso,
+            "aliases": aliases,
+        }
+
+    for i in range(len(entity_slugs)):
+        for j in range(i + 1, len(entity_slugs)):
+            left = entity_slugs[i]
+            right = entity_slugs[j]
+            if left == right:
+                continue
+            a, b = sorted((left, right))
+            edge_key = f"{a}||{b}"
+            edge_raw = edges.get(edge_key)
+            edge = edge_raw if isinstance(edge_raw, dict) else {}
+            edges[edge_key] = {
+                "a": a,
+                "b": b,
+                "weight": int(edge.get("weight", 0)) + 1,
+                "last_seen": now_iso,
+            }
+
+    max_nodes = 4000
+    max_edges = 12000
+    try:
+        max_nodes = max(200, int(os.getenv("CLIO_KG_MAX_NODES", "4000").strip()))
+    except ValueError:
+        max_nodes = 4000
+    try:
+        max_edges = max(400, int(os.getenv("CLIO_KG_MAX_EDGES", "12000").strip()))
+    except ValueError:
+        max_edges = 12000
+
+    if len(nodes) > max_nodes:
+        ordered_nodes = sorted(
+            nodes.items(),
+            key=lambda item: (
+                int((item[1] if isinstance(item[1], dict) else {}).get("count", 0)),
+                str((item[1] if isinstance(item[1], dict) else {}).get("last_seen", "")),
+            ),
+            reverse=True,
+        )[:max_nodes]
+        keep = {slug for slug, _ in ordered_nodes}
+        nodes = {slug: node for slug, node in ordered_nodes}
+        edges = {
+            key: edge
+            for key, edge in edges.items()
+            if isinstance(edge, dict) and str(edge.get("a")) in keep and str(edge.get("b")) in keep
+        }
+
+    if len(edges) > max_edges:
+        ordered_edges = sorted(
+            edges.items(),
+            key=lambda item: (
+                int((item[1] if isinstance(item[1], dict) else {}).get("weight", 0)),
+                str((item[1] if isinstance(item[1], dict) else {}).get("last_seen", "")),
+            ),
+            reverse=True,
+        )[:max_edges]
+        edges = {key: edge for key, edge in ordered_edges}
+
+    related_scores: dict[str, int] = {}
+    active_set = set(entity_slugs)
+    for edge in edges.values():
+        if not isinstance(edge, dict):
+            continue
+        a = str(edge.get("a", ""))
+        b = str(edge.get("b", ""))
+        if not a or not b:
+            continue
+        weight = int(edge.get("weight", 0))
+        if a in active_set and b not in active_set:
+            related_scores[b] = related_scores.get(b, 0) + weight
+        if b in active_set and a not in active_set:
+            related_scores[a] = related_scores.get(a, 0) + weight
+
+    ordered_related = sorted(related_scores.items(), key=lambda item: item[1], reverse=True)[:3]
+    related_entities: list[str] = []
+    related_links: list[str] = []
+    for slug, _ in ordered_related:
+        node_raw = nodes.get(slug)
+        node = node_raw if isinstance(node_raw, dict) else {}
+        label = str(node.get("entity") or slug)
+        related_entities.append(label)
+        related_links.append(f"[[KG-{slug}]]")
+
+    graph_payload = {
+        "version": "1.0",
+        "updated_at": now_iso,
+        "nodes": nodes,
+        "edges": edges,
+    }
+    _json_atomic_write(graph_path, graph_payload)
+    graph_relative = graph_path.relative_to(vault_dir.parent).as_posix()
+    return ClioKnowledgeGraphResult(
+        entities=entities,
+        related_entities=related_entities,
+        related_links=related_links,
+        graph_file=graph_relative,
+    )
 
 
 def _yaml_quote(value: str) -> str:
@@ -263,6 +495,9 @@ def infer_clio_pipeline(message: str, vault_dir: Path) -> ClioPipelineResult:
     related_links = _dedupe_preserve_order(related_links)[:8]
     source_urls = external_urls[:8]
 
+    knowledge_graph = update_clio_knowledge_graph(message, tags, vault_dir)
+    related_links = _dedupe_preserve_order([*related_links, *knowledge_graph.related_links])[:10]
+
     first_line = next((line.strip() for line in message.splitlines() if line.strip()), "Clio Note")
     notebooklm_title = _truncate_text(first_line, 72)
     source_language = detect_source_language(message)
@@ -288,6 +523,9 @@ def infer_clio_pipeline(message: str, vault_dir: Path) -> ClioPipelineResult:
         deepl_target_lang=deepl_target_lang,
         deepl_required=deepl_required,
         deepl_applied=deepl_applied,
+        knowledge_entities=knowledge_graph.entities,
+        knowledge_related_entities=knowledge_graph.related_entities,
+        knowledge_graph_file=knowledge_graph.graph_file,
     )
 
 
@@ -400,6 +638,9 @@ def build_markdown(
                 f"- deepl_applied: {str(clio.deepl_applied).lower()}",
                 f"- notebooklm_title: {clio.notebooklm_title}",
                 f"- notebooklm_ready: true",
+                f"- knowledge_entities: {', '.join(clio.knowledge_entities) if clio.knowledge_entities else '없음'}",
+                f"- knowledge_related_entities: {', '.join(clio.knowledge_related_entities) if clio.knowledge_related_entities else '없음'}",
+                f"- knowledge_graph_file: {clio.knowledge_graph_file or '없음'}",
                 "",
                 "## Clio Links",
             ]
@@ -410,6 +651,11 @@ def build_markdown(
             lines.append("- 없음")
         lines.extend(
             [
+                "",
+                "## Clio Knowledge Graph",
+                f"- entities: {', '.join(clio.knowledge_entities) if clio.knowledge_entities else '없음'}",
+                f"- related: {', '.join(clio.knowledge_related_entities) if clio.knowledge_related_entities else '없음'}",
+                f"- graph_file: {clio.knowledge_graph_file or '없음'}",
                 "",
                 "## NotebookLM Summary",
                 clio.notebooklm_summary,
@@ -485,6 +731,11 @@ def process_file(
                 "summary": clio_pipeline.notebooklm_summary,
                 "vault_file": shared_relative_vault_path,
             },
+            "knowledge_graph": {
+                "entities": clio_pipeline.knowledge_entities,
+                "related_entities": clio_pipeline.knowledge_related_entities,
+                "graph_file": clio_pipeline.knowledge_graph_file,
+            },
             "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
         verified_path = verified_inbox_dir / f"{now}-{path.stem}.json"
@@ -507,6 +758,9 @@ def process_file(
         "deepl_applied": clio_pipeline.deepl_applied if clio_pipeline else False,
         "notebooklm_ready": clio_pipeline is not None,
         "notebooklm_dispatch": notebooklm_dispatch,
+        "knowledge_entities": clio_pipeline.knowledge_entities if clio_pipeline else [],
+        "knowledge_related_entities": clio_pipeline.knowledge_related_entities if clio_pipeline else [],
+        "knowledge_graph_file": clio_pipeline.knowledge_graph_file if clio_pipeline else None,
         "verified_file": verified_relative_path,
         "processed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }

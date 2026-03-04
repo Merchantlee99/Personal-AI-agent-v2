@@ -1,100 +1,127 @@
 # NanoClaw v2 Use Cases
 
-이 문서는 "사용자가 무엇을 입력하고 어떤 결과물을 받는가"를 설명합니다.
-구조는 [ARCHITECTURE](ARCHITECTURE.md), 운영은 [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md)을 참고합니다.
+이 문서는 실제 사용 시나리오를 기준으로 입력, 처리, 결과물을 정리합니다.
 
-## 1) 시나리오 요약표
+## 1) 핵심 시나리오 한눈에 보기
 
-| 시나리오 | 시작점 | 핵심 액션 | 산출물 |
+| 시나리오 | 트리거 | 시스템 처리 | 사용자 결과 |
 |---|---|---|---|
-| 아침 브리핑 수신 | n8n schedule | Hermes 수집 -> Minerva 브리핑 전송 | Telegram 브리핑 + event 기록 |
-| Clio 저장 | Telegram 인라인 버튼 | `clio_save` callback | Obsidian md + verified payload |
-| Hermes 추가 수집 | Telegram 인라인 버튼 | `hermes_deep_dive` callback | 추가 소스 결과 + (옵션) Minerva 후속 분석 |
-| Minerva 인사이트 분석 | Telegram 인라인 버튼 | `minerva_insight` callback | 우선순위/리스크 중심 분석 메시지 |
-| Telegram 텍스트 대화 | Telegram 일반 메시지 | `/api/chat(agent=minerva)` 브리지 | 대화 응답 + chat history |
+| 아침 브리핑 | n8n schedule(P0/P1/P2) | Hermes 수집 -> Minerva 포맷 -> Telegram 전송 | 카테고리별 요약 브리핑 수신 |
+| Clio 저장 | 인라인 `Clio, 옵시디언에 저장해` | 2단계 승인 -> inbox task -> agent 처리 | Obsidian 노트/verified payload 생성 |
+| Hermes 심화 수집 | 인라인 `Hermes, 더 찾아` | 2단계 승인 -> 심화 수집 task | 추가 근거 소스 확보 |
+| Minerva 인사이트 | 인라인 `Minerva, 인사이트 분석해` | 2단계 승인 -> Minerva 분석 task | 2차 사고 기반 분석 결과 수신 |
+| 일반 대화 | Telegram 텍스트 | `/api/chat` 브리지 + 메모리 컨텍스트 | 자연어 질의응답 |
+| 승인 에스컬레이션 | 승인 대기 TTL 절반 도달 | 프론트 승인 카드 발행 | 승인 누락 방지 |
 
-## 2) 아침 브리핑 수신 (Hermes -> Minerva -> Telegram)
+## 2) 시나리오 상세
 
-입력
-- n8n 스케줄 트리거(P0/P1/P2)
-
-처리
-1. Hermes 워크플로가 소스 정제/중복 억제
-2. `/api/orchestration/events`로 이벤트 전달
-3. Minerva 포맷으로 Telegram 브리핑 발송
-
-결과물
-- Telegram 브리핑(주제/핵심 요약/출처/인사이트)
-- `shared_data/shared_memory/agent_events.json`
-
-## 3) 브리핑 즉시 저장 (Clio 버튼)
+### 2-1) 아침 브리핑
 
 입력
-- Telegram 인라인 `Clio, 옵시디언에 저장해`
+- n8n 스케줄 트리거
 
 처리
-1. `/api/telegram/webhook` 검증 통과
-2. clio task 생성 -> `shared_data/inbox`
-3. `nanoclaw-agent`가 task 처리
+1. Hermes가 수집/필터/중복 억제
+2. Event Contract v1로 오케스트레이션 전달
+3. Minerva 형식으로 Telegram 브리핑 생성
 
-결과물
+산출물
+- Telegram 브리핑 메시지
+- `shared_memory/agent_events.json` 기록
+
+### 2-2) Clio 저장
+
+입력
+- Telegram 인라인 버튼 클릭
+
+처리
+1. callback 인증(비밀/allowlist/action)
+2. 2단계 승인 완료
+3. `shared_data/inbox`에 clio task 생성
+4. nanoclaw-agent가 vault/verified 결과 생성
+
+산출물
 - `shared_data/obsidian_vault/*.md`
 - `shared_data/verified_inbox/*.json`
 
-## 4) 추가 근거 수집 (Hermes 버튼)
+### 2-3) Hermes 심화 수집
 
 입력
-- Telegram 인라인 `Hermes, 더 찾아`
+- Telegram 인라인 버튼 클릭
 
 처리
-1. hermes deep-dive task 생성
-2. Hermes가 연관 소스 재수집/정리
-3. 옵션: `HERMES_DEEP_DIVE_AUTO_MINERVA=true`면 Minerva 후속 분석 자동 생성
+1. 2단계 승인
+2. hermes deep-dive task 생성
+3. 관련 소스 확장 수집
+4. 옵션: 후속 Minerva 분석 task 자동 생성
 
-결과물
-- hermes outbox 결과
-- (옵션) minerva follow-up task
+산출물
+- deep-dive 결과(outbox)
+- 옵션 Minerva follow-up
 
-## 5) Minerva 2차 사고 분석
+### 2-4) Minerva 인사이트 분석
 
 입력
-- Telegram 인라인 `Minerva, 인사이트 분석해`
+- Telegram 인라인 버튼 클릭
 
 처리
-1. minerva insight task 생성
-2. Minerva가 우선순위/영향/다음 액션 관점으로 분석
+1. 2단계 승인
+2. Minerva 분석 task 생성
+3. 우선순위/영향/액션 중심 분석
 
-결과물
-- Telegram 후속 인사이트 메시지
-- memory timeline 누적
+산출물
+- 인사이트 메시지
+- 메모리 타임라인 누적
 
-## 6) Telegram 일반 대화
+### 2-5) Telegram 일반 대화
 
 입력
-- Telegram 일반 텍스트 메시지
+- 일반 텍스트 메시지
 
 처리
-1. allowlist + rate-limit + webhook secret 검증
-2. `/api/chat(agent=minerva)` 브리지
-3. 응답 송신 + history 저장
+1. webhook 인증/허용 검사
+2. `/api/chat(agent=minerva)` 호출
+3. chat history + compact memory 반영
 
-결과물
-- Telegram 대화 응답
-- `shared_data/shared_memory/telegram_chat_history.json`
+산출물
+- 대화 응답
+- `telegram_chat_history.json`
 
-## 7) 전체 사용자 여정
+## 3) 사용자 여정 다이어그램
 
 ```mermaid
 flowchart TD
-  B["Hermes 브리핑 도착"] --> T["Telegram 메시지"]
-  T --> C["Clio 저장"]
-  T --> H["Hermes 더 찾아"]
-  T --> M["Minerva 인사이트"]
-  T --> X["텍스트 질의"]
+  START["Hermes 브리핑 수신"] --> VIEW["Telegram 브리핑 확인"]
+  VIEW --> C["Clio 저장"]
+  VIEW --> H["Hermes 심화 수집"]
+  VIEW --> M["Minerva 인사이트 분석"]
+  VIEW --> Q["일반 질문"]
 
-  C --> V["Obsidian + Verified Inbox"]
-  H --> O["추가 소스"]
-  H --> MF["Optional Minerva follow-up"]
-  M --> I["결정 인사이트"]
-  X --> CH["Chat history"]
+  C --> A1["2단계 승인"] --> R1["Obsidian/Verified 저장"]
+  H --> A2["2단계 승인"] --> R2["추가 소스 확보"]
+  M --> A3["2단계 승인"] --> R3["전략 인사이트"]
+  Q --> R4["대화 응답 + 기록"]
+
+  A1 --> ESC["TTL 절반 시 프론트 에스컬레이션"]
+  A2 --> ESC
+  A3 --> ESC
 ```
+
+## 4) Telegram 브리핑 포맷 의도
+
+고정 섹션
+- `주제`
+- `핵심 요약`
+- `출처`
+- `Minerva 인사이트`
+
+의도
+- 읽기 우선: 불필요한 마크다운 기호 제거
+- 실행 우선: 버튼 액션과 연결되는 구조 유지
+- 확장성: 멀티 주제(n개)에도 동일 포맷 유지
+
+## 5) 성공 기준
+
+- 사용자는 브리핑을 받고, 버튼 1회 진입으로 고위험 액션을 안전하게 실행한다.
+- 승인 만료/누락은 프론트 에스컬레이션으로 보완된다.
+- 결과물은 `inbox -> agent -> vault/outbox/verified` 경로에서 추적 가능하다.

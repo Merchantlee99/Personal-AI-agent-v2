@@ -29,6 +29,7 @@ SOURCE_USER_ID="${SOURCE_USER_ID:-10001}"
 SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-${TELEGRAM_CHAT_ID:-20001}}"
 
 TOPIC_KEY="telegram-inline-rehearsal-$(date +%s)"
+OCCURRED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 echo "[telegram-inline] create source event"
 rm -f /tmp/telegram_inline_event.json
@@ -39,14 +40,20 @@ for _ in 1 2 3 4 5; do
       -X POST "${BASE_URL}/api/orchestration/events" \
       -H 'content-type: application/json' \
       -d "{
-        \"agentId\":\"hermes\",
-        \"topicKey\":\"${TOPIC_KEY}\",
-        \"title\":\"텔레그램 인라인 버튼 리허설\",
-        \"summary\":\"clio_save/hermes_deep_dive/minerva_insight 동작을 점검합니다.\",
-        \"priority\":\"low\",
-        \"confidence\":0.25,
-        \"tags\":[\"rehearsal\",\"telegram\"],
-        \"sourceRefs\":[{\"title\":\"Rehearsal Source\",\"url\":\"https://example.com/rehearsal\"}]
+        \"schemaVersion\":\"1.0\",
+        \"eventType\":\"hermes.briefing.created\",
+        \"producer\":\"verify-script\",
+        \"occurredAt\":\"${OCCURRED_AT}\",
+        \"payload\":{
+          \"agentId\":\"hermes\",
+          \"topicKey\":\"${TOPIC_KEY}\",
+          \"title\":\"텔레그램 인라인 버튼 리허설\",
+          \"summary\":\"clio_save/hermes_deep_dive/minerva_insight 동작을 점검합니다.\",
+          \"priority\":\"low\",
+          \"confidence\":0.25,
+          \"tags\":[\"rehearsal\",\"telegram\"],
+          \"sourceRefs\":[{\"title\":\"Rehearsal Source\",\"url\":\"https://example.com/rehearsal\"}]
+        }
       }" || true
   )"
   if [[ "$event_status" == "200" ]]; then
@@ -74,14 +81,15 @@ if [[ -z "$EVENT_ID" ]]; then
 fi
 
 post_callback() {
-  local action="$1"
-  local output="$2"
+  local callback_data="$1"
+  local callback_id="$2"
+  local output="$3"
   cat > /tmp/telegram_inline_callback.json <<JSON
 {
   "update_id": 1,
   "callback_query": {
-    "id": "cbq-${action}",
-    "data": "${action}:${EVENT_ID}",
+    "id": "${callback_id}",
+    "data": "${callback_data}",
     "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-inline-test" },
     "message": { "chat": { "id": ${SOURCE_CHAT_ID}, "type": "private" } }
   }
@@ -109,55 +117,56 @@ JSON
     sleep 1
   done
   if [[ "$status" != "200" ]]; then
-    echo "[telegram-inline] callback failed action=${action} status=${status}" >&2
+    echo "[telegram-inline] callback failed data=${callback_data} status=${status}" >&2
     cat "$output" >&2 || true
     exit 1
   fi
 }
 
-echo "[telegram-inline] callback clio_save"
-post_callback "clio_save" "/tmp/telegram_inline_clio.json"
-python3 - <<'PY'
+extract_approval_id() {
+  local path="$1"
+  python3 - <<'PY' "$path"
 import json,sys
-with open('/tmp/telegram_inline_clio.json','r',encoding='utf-8') as f:
+with open(sys.argv[1],'r',encoding='utf-8') as f:
     data=json.load(f)
-if not data.get("ok") or data.get("action") != "clio_save":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] clio_save callback ok")
+approval = data.get("approval") if isinstance(data,dict) else None
+print((approval or {}).get("approvalId",""))
 PY
+}
 
-echo "[telegram-inline] callback hermes_deep_dive"
-post_callback "hermes_deep_dive" "/tmp/telegram_inline_hermes.json"
-python3 - <<'PY'
+verify_step2_inbox() {
+  local path="$1"
+  local action="$2"
+  python3 - <<'PY' "$path" "$action"
 import json,sys
-with open('/tmp/telegram_inline_hermes.json','r',encoding='utf-8') as f:
+path=sys.argv[1]
+action=sys.argv[2]
+with open(path,'r',encoding='utf-8') as f:
     data=json.load(f)
-if not data.get("ok") or data.get("action") != "hermes_deep_dive":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] hermes_deep_dive callback ok")
+if not data.get("ok") or data.get("action") != action:
+    print(data); sys.exit(1)
+inbox=data.get("inbox")
+if not isinstance(inbox, dict) or not inbox.get("inboxFile"):
+    print(data); sys.exit(1)
+print(f"[telegram-inline] {action} two-step callback ok")
 PY
+}
 
-echo "[telegram-inline] callback minerva_insight"
-post_callback "minerva_insight" "/tmp/telegram_inline_minerva.json"
-python3 - <<'PY'
-import json,sys
-with open('/tmp/telegram_inline_minerva.json','r',encoding='utf-8') as f:
-    data=json.load(f)
-if not data.get("ok") or data.get("action") != "minerva_insight":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] minerva_insight callback ok")
-PY
+for action in clio_save hermes_deep_dive minerva_insight; do
+  prefix="/tmp/telegram_inline_${action}"
+  post_callback "${action}:${EVENT_ID}" "cbq-${action}-s0" "${prefix}-s0.json"
+  approval_id="$(extract_approval_id "${prefix}-s0.json")"
+  if [[ -z "$approval_id" ]]; then
+    echo "[telegram-inline] approvalId missing action=${action}" >&2
+    cat "${prefix}-s0.json" >&2 || true
+    exit 1
+  fi
+
+  echo "[telegram-inline] callback ${action} (step1 yes)"
+  post_callback "${action}:approve1_yes_${approval_id}" "cbq-${action}-s1" "${prefix}-s1.json"
+  echo "[telegram-inline] callback ${action} (step2 yes)"
+  post_callback "${action}:approve2_yes_${approval_id}" "cbq-${action}-s2" "${prefix}-s2.json"
+  verify_step2_inbox "${prefix}-s2.json" "${action}"
+done
 
 echo "[telegram-inline] PASS"

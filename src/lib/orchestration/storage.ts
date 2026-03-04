@@ -6,6 +6,7 @@ import {
   appendCompactMemoryFromEvent,
   appendCompactMemoryFromTelegram,
 } from "@/lib/orchestration/compact-memory";
+import { getApprovalPolicy } from "@/lib/orchestration/policy";
 import { AgentEvent } from "@/lib/orchestration/types";
 
 type CooldownState = Record<string, string>;
@@ -17,6 +18,8 @@ type DigestBucket = {
 };
 
 type TelegramChatRole = "user" | "assistant";
+export type TelegramApprovalAction = "clio_save" | "hermes_deep_dive" | "minerva_insight";
+export type TelegramApprovalStatus = "pending_step1" | "pending_step2" | "approved" | "rejected" | "expired";
 
 export type TelegramChatHistoryEntry = {
   role: TelegramChatRole;
@@ -25,14 +28,30 @@ export type TelegramChatHistoryEntry = {
 };
 
 type TelegramChatHistoryStore = Record<string, TelegramChatHistoryEntry[]>;
+type TelegramApprovalStore = Record<string, TelegramPendingApproval>;
+
+export type TelegramPendingApproval = {
+  approvalId: string;
+  action: TelegramApprovalAction;
+  eventId: string;
+  userId: string;
+  chatId: string;
+  status: TelegramApprovalStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  resolvedReason?: string;
+};
 
 const ROOT = process.env.SHARED_ROOT_PATH?.trim() || path.join(process.cwd(), "shared_data");
 const MEMORY_DIR = path.join(ROOT, "shared_memory");
 const AGENT_MEMORY_DIR = path.join(MEMORY_DIR, "agent_memory");
+const LOCK_DIR = path.join(MEMORY_DIR, ".locks");
 const EVENTS_FILE = path.join(MEMORY_DIR, "agent_events.json");
 const COOLDOWN_FILE = path.join(MEMORY_DIR, "topic_cooldowns.json");
 const DIGEST_FILE = path.join(MEMORY_DIR, "digest_queue.json");
 const TELEGRAM_CHAT_HISTORY_FILE = path.join(MEMORY_DIR, "telegram_chat_history.json");
+const TELEGRAM_APPROVAL_FILE = path.join(MEMORY_DIR, "telegram_pending_approvals.json");
 const MEMORY_MARKDOWN_FILE = path.join(MEMORY_DIR, "memory.md");
 const MEMORY_MARKDOWN_MAX_BYTES = Math.max(32_000, Number(process.env.MEMORY_MD_MAX_BYTES ?? 280_000) || 280_000);
 const MEMORY_MARKDOWN_HEADER = [
@@ -57,8 +76,65 @@ const MEMORY_SKIP_TAGS = new Set(
     .filter((item) => item.length > 0)
 );
 
+const STORAGE_LOCK_TIMEOUT_MS = Math.max(500, Number(process.env.STORAGE_LOCK_TIMEOUT_MS ?? 4000) || 4000);
+const STORAGE_LOCK_STALE_MS = Math.max(1000, Number(process.env.STORAGE_LOCK_STALE_MS ?? 15000) || 15000);
+const STORAGE_LOCK_RETRY_MS = Math.max(15, Number(process.env.STORAGE_LOCK_RETRY_MS ?? 60) || 60);
+
 async function ensureMemoryDir() {
   await fs.mkdir(MEMORY_DIR, { recursive: true });
+}
+
+function sanitizeLockName(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "storage";
+}
+
+async function sleepMs(ms: number) {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function withNamedLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  await ensureMemoryDir();
+  await fs.mkdir(LOCK_DIR, { recursive: true });
+  const lockPath = path.join(LOCK_DIR, `${sanitizeLockName(name)}.lock`);
+  const deadline = Date.now() + STORAGE_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      await fs.mkdir(lockPath);
+      break;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EEXIST") {
+        throw error;
+      }
+      try {
+        const stat = await fs.stat(lockPath);
+        if (Date.now() - stat.mtimeMs > STORAGE_LOCK_STALE_MS) {
+          await fs.rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // Lock disappeared while checking stale age.
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(`storage_lock_timeout:${name}`);
+      }
+      await sleepMs(STORAGE_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await fs.rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 async function ensureMemoryMarkdownFile() {
@@ -109,7 +185,7 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
 
 async function writeJsonFile(filePath: string, payload: unknown) {
   await ensureMemoryDir();
-  const tmpPath = `${filePath}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.tmp`;
   await fs.writeFile(tmpPath, JSON.stringify(payload, null, 2), "utf-8");
   await fs.rename(tmpPath, filePath);
 }
@@ -237,11 +313,158 @@ export function makeDedupeKey(topicKey: string, summary: string) {
   return crypto.createHash("sha256").update(`${topicKey}::${summary}`).digest("hex").slice(0, 20);
 }
 
+function isTerminalApprovalStatus(status: TelegramApprovalStatus) {
+  return status === "approved" || status === "rejected" || status === "expired";
+}
+
+function normalizeApprovalStore(raw: TelegramApprovalStore): TelegramApprovalStore {
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const next: TelegramApprovalStore = {};
+
+  for (const [key, item] of Object.entries(raw ?? {})) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const expiresAtMs = new Date(item.expiresAt).getTime();
+    const updatedAtMs = new Date(item.updatedAt).getTime();
+    const expiresAtValid = Number.isFinite(expiresAtMs);
+    const updatedAtValid = Number.isFinite(updatedAtMs);
+    const status = item.status;
+    if (status !== "pending_step1" && status !== "pending_step2" && status !== "approved" && status !== "rejected" && status !== "expired") {
+      continue;
+    }
+
+    const normalized: TelegramPendingApproval = {
+      ...item,
+      approvalId: item.approvalId || key,
+      updatedAt: updatedAtValid ? item.updatedAt : nowIso,
+      expiresAt: expiresAtValid ? item.expiresAt : new Date(nowMs).toISOString(),
+    };
+
+    if (
+      (normalized.status === "pending_step1" || normalized.status === "pending_step2") &&
+      new Date(normalized.expiresAt).getTime() <= nowMs
+    ) {
+      normalized.status = "expired";
+      normalized.updatedAt = nowIso;
+      normalized.resolvedReason = normalized.resolvedReason || "expired_ttl";
+    }
+
+    // Keep terminal approvals for 24h to preserve auditability, then prune.
+    if (
+      isTerminalApprovalStatus(normalized.status) &&
+      new Date(normalized.updatedAt).getTime() + 24 * 60 * 60 * 1000 < nowMs
+    ) {
+      continue;
+    }
+    next[key] = normalized;
+  }
+  return next;
+}
+
+async function readApprovalStore(): Promise<TelegramApprovalStore> {
+  const raw = await readJsonFile<TelegramApprovalStore>(TELEGRAM_APPROVAL_FILE, {});
+  return normalizeApprovalStore(raw);
+}
+
+async function writeApprovalStore(payload: TelegramApprovalStore) {
+  await writeJsonFile(TELEGRAM_APPROVAL_FILE, normalizeApprovalStore(payload));
+}
+
+export async function createTelegramPendingApproval(params: {
+  action: TelegramApprovalAction;
+  eventId: string;
+  userId: string;
+  chatId: string;
+  ttlSec?: number;
+}) {
+  const ttlSec = params.ttlSec ?? getApprovalPolicy().ttlSec;
+  const now = new Date();
+  const approvalId = crypto.randomBytes(8).toString("hex");
+  const createdAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + ttlSec * 1000).toISOString();
+  const next: TelegramPendingApproval = {
+    approvalId,
+    action: params.action,
+    eventId: params.eventId,
+    userId: params.userId,
+    chatId: params.chatId,
+    status: "pending_step1",
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt,
+  };
+
+  await withNamedLock("telegram_approvals", async () => {
+    const approvals = await readApprovalStore();
+    approvals[approvalId] = next;
+    await writeApprovalStore(approvals);
+  });
+  return next;
+}
+
+export async function findTelegramPendingApproval(approvalId: string) {
+  const approvals = await readApprovalStore();
+  return approvals[approvalId] ?? null;
+}
+
+export async function listTelegramPendingApprovals(params?: {
+  chatId?: string;
+  userId?: string;
+  statuses?: TelegramApprovalStatus[];
+}) {
+  const approvals = await readApprovalStore();
+  const targetStatuses = params?.statuses?.length ? new Set(params.statuses) : null;
+  return Object.values(approvals)
+    .filter((item) => {
+      if (!item) {
+        return false;
+      }
+      if (params?.chatId && item.chatId !== params.chatId) {
+        return false;
+      }
+      if (params?.userId && item.userId !== params.userId) {
+        return false;
+      }
+      if (targetStatuses && !targetStatuses.has(item.status)) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime());
+}
+
+export async function updateTelegramPendingApproval(params: {
+  approvalId: string;
+  status: TelegramApprovalStatus;
+  resolvedReason?: string;
+}) {
+  return withNamedLock("telegram_approvals", async () => {
+    const approvals = await readApprovalStore();
+    const target = approvals[params.approvalId];
+    if (!target) {
+      return null;
+    }
+    const updated: TelegramPendingApproval = {
+      ...target,
+      status: params.status,
+      updatedAt: new Date().toISOString(),
+      resolvedReason: params.resolvedReason ?? target.resolvedReason,
+    };
+    approvals[params.approvalId] = updated;
+    await writeApprovalStore(approvals);
+    return updated;
+  });
+}
+
 export async function appendAgentEvent(event: AgentEvent) {
-  const events = await readJsonFile<AgentEvent[]>(EVENTS_FILE, []);
-  events.push(event);
-  const capped = events.slice(-3000);
-  await writeJsonFile(EVENTS_FILE, capped);
+  await withNamedLock("agent_events", async () => {
+    const events = await readJsonFile<AgentEvent[]>(EVENTS_FILE, []);
+    events.push(event);
+    const capped = events.slice(-3000);
+    await writeJsonFile(EVENTS_FILE, capped);
+  });
   try {
     await appendCompactMemoryFromEvent(event);
   } catch {
@@ -269,21 +492,25 @@ export async function getCooldown(topicKey: string) {
 }
 
 export async function setCooldown(topicKey: string, untilIso: string) {
-  const cooldowns = await readJsonFile<CooldownState>(COOLDOWN_FILE, {});
-  cooldowns[topicKey] = untilIso;
-  await writeJsonFile(COOLDOWN_FILE, cooldowns);
+  await withNamedLock("topic_cooldowns", async () => {
+    const cooldowns = await readJsonFile<CooldownState>(COOLDOWN_FILE, {});
+    cooldowns[topicKey] = untilIso;
+    await writeJsonFile(COOLDOWN_FILE, cooldowns);
+  });
 }
 
 export async function pushDigestItem(slot: string, event: AgentEvent) {
-  const queue = await readJsonFile<Record<string, DigestBucket>>(DIGEST_FILE, {});
-  const bucket = queue[slot] ?? { slot, items: [], updatedAt: new Date().toISOString() };
-  bucket.items.push(event);
-  bucket.updatedAt = new Date().toISOString();
-  queue[slot] = {
-    ...bucket,
-    items: bucket.items.slice(-200),
-  };
-  await writeJsonFile(DIGEST_FILE, queue);
+  await withNamedLock("digest_queue", async () => {
+    const queue = await readJsonFile<Record<string, DigestBucket>>(DIGEST_FILE, {});
+    const bucket = queue[slot] ?? { slot, items: [], updatedAt: new Date().toISOString() };
+    bucket.items.push(event);
+    bucket.updatedAt = new Date().toISOString();
+    queue[slot] = {
+      ...bucket,
+      items: bucket.items.slice(-200),
+    };
+    await writeJsonFile(DIGEST_FILE, queue);
+  });
 }
 
 export async function createInboxTask(params: {
@@ -352,15 +579,17 @@ export async function appendTelegramChatHistory(params: {
 }) {
   const maxEntries = Math.max(4, params.maxEntries ?? 24);
   const now = new Date().toISOString();
-  const history = await readJsonFile<TelegramChatHistoryStore>(TELEGRAM_CHAT_HISTORY_FILE, {});
-  const current = Array.isArray(history[params.chatId]) ? history[params.chatId] : [];
-  const next = [
-    ...current,
-    { role: "user" as const, text: params.userText, at: now },
-    { role: "assistant" as const, text: params.assistantText, at: now },
-  ].slice(-maxEntries);
-  history[params.chatId] = next;
-  await writeJsonFile(TELEGRAM_CHAT_HISTORY_FILE, history);
+  await withNamedLock("telegram_chat_history", async () => {
+    const history = await readJsonFile<TelegramChatHistoryStore>(TELEGRAM_CHAT_HISTORY_FILE, {});
+    const current = Array.isArray(history[params.chatId]) ? history[params.chatId] : [];
+    const next = [
+      ...current,
+      { role: "user" as const, text: params.userText, at: now },
+      { role: "assistant" as const, text: params.assistantText, at: now },
+    ].slice(-maxEntries);
+    history[params.chatId] = next;
+    await writeJsonFile(TELEGRAM_CHAT_HISTORY_FILE, history);
+  });
   try {
     await appendCompactMemoryFromTelegram({
       chatId: params.chatId,
@@ -384,11 +613,13 @@ export async function appendTelegramChatHistory(params: {
 }
 
 export async function clearTelegramChatHistory(chatId: string) {
-  const history = await readJsonFile<TelegramChatHistoryStore>(TELEGRAM_CHAT_HISTORY_FILE, {});
-  if (history[chatId]) {
-    delete history[chatId];
-    await writeJsonFile(TELEGRAM_CHAT_HISTORY_FILE, history);
-  }
+  await withNamedLock("telegram_chat_history", async () => {
+    const history = await readJsonFile<TelegramChatHistoryStore>(TELEGRAM_CHAT_HISTORY_FILE, {});
+    if (history[chatId]) {
+      delete history[chatId];
+      await writeJsonFile(TELEGRAM_CHAT_HISTORY_FILE, history);
+    }
+  });
 }
 
 export async function ensureRuntimeMemoryMarkdown() {

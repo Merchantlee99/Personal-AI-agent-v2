@@ -1,11 +1,13 @@
 import {
   AgentEvent,
+  BriefingTier,
   MinervaCalendarBriefing,
   TelegramDispatchPayload,
   TelegramInlineKeyboard,
 } from "@/lib/orchestration/types";
 import { sourceCategoryEmoji, sourceCategoryLabel } from "@/lib/orchestration/source-taxonomy";
 import { shouldTranslateToKorean, translateToKorean } from "@/lib/integrations/deepl";
+import { getTelegramTranslationPolicy } from "@/lib/orchestration/policy";
 
 const PRIORITY_EMOJI: Record<AgentEvent["priority"], string> = {
   critical: "🚨",
@@ -13,8 +15,6 @@ const PRIORITY_EMOJI: Record<AgentEvent["priority"], string> = {
   normal: "🧭",
   low: "📝",
 };
-
-type BriefingTier = "P0" | "P1" | "P2";
 
 type TierStyle = {
   header: string;
@@ -42,22 +42,6 @@ const TIER_STYLES: Record<BriefingTier, TierStyle> = {
     insightMaxLines: 2,
     maxSources: 2,
   },
-};
-
-type TranslationTierPolicy = {
-  translateSummary: boolean;
-  summaryCharLimit: number;
-  maxSnippetTranslations: number;
-  snippetCharLimit: number;
-};
-
-const TIER_TRANSLATION_POLICY: Record<BriefingTier, TranslationTierPolicy> = {
-  // P0는 즉시 판단이 필요하므로 핵심요약 + 상위 2개 스니펫까지 번역
-  P0: { translateSummary: true, summaryCharLimit: 480, maxSnippetTranslations: 2, snippetCharLimit: 180 },
-  // P1은 비용을 줄이기 위해 핵심요약 + 상위 1개 스니펫만 번역
-  P1: { translateSummary: true, summaryCharLimit: 420, maxSnippetTranslations: 1, snippetCharLimit: 160 },
-  // P2는 스캔/관찰 목적이라 자동 번역을 비활성화
-  P2: { translateSummary: false, summaryCharLimit: 0, maxSnippetTranslations: 0, snippetCharLimit: 0 },
 };
 
 function cleanLine(value: string): string {
@@ -314,7 +298,7 @@ async function localizeEventForTelegram(event: AgentEvent): Promise<AgentEvent> 
   }
 
   const tier = inferTier(event);
-  const policy = TIER_TRANSLATION_POLICY[tier];
+  const policy = getTelegramTranslationPolicy(tier);
   if (!policy.translateSummary && policy.maxSnippetTranslations <= 0) {
     return event;
   }
@@ -411,11 +395,13 @@ export async function sendTelegramTextMessage(params: {
   chatId: string;
   text: string;
   disableWebPagePreview?: boolean;
+  replyMarkup?: TelegramInlineKeyboard;
 }) {
   return sendTelegramMessage({
     chat_id: params.chatId,
     text: params.text,
     disable_web_page_preview: params.disableWebPagePreview ?? true,
+    reply_markup: params.replyMarkup,
   });
 }
 

@@ -117,6 +117,18 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    token = raw.strip().lower()
+    if token in {"1", "true", "yes", "on"}:
+        return True
+    if token in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _history_to_lines(history: list[HistoryMessage], max_items: int = 8) -> list[str]:
     selected = history[-max_items:]
     lines: list[str] = []
@@ -177,6 +189,41 @@ def _build_prompt(
         ]
     )
     return "\n".join(prompt_lines)
+
+
+def _trim_text(raw: str, max_chars: int) -> str:
+    token = raw.strip()
+    if len(token) <= max_chars:
+        return token
+    return f"{token[: max_chars - 1].rstrip()}…"
+
+
+def _build_minerva_preprocess_prompt(
+    *,
+    message: str,
+    history_lines: list[str],
+    memory_context: str | None,
+    target_max_chars: int,
+) -> str:
+    history_block = "\n".join(history_lines) if history_lines else "(empty)"
+    memory_block = memory_context.strip() if isinstance(memory_context, str) and memory_context.strip() else "(empty)"
+    return (
+        "You are a context compressor for Minerva.\n"
+        "Goal: keep only decisive facts and remove repetition/noise.\n"
+        "Rules:\n"
+        "- Output Korean plain text only.\n"
+        "- No markdown headings, no code blocks.\n"
+        "- Keep concrete signals: what changed, why it matters, evidence quality, open risks.\n"
+        "- If uncertain, mark as '불확실'.\n"
+        f"- Maximum output length: {target_max_chars} characters.\n\n"
+        "Current user request:\n"
+        f"{message}\n\n"
+        "Conversation history:\n"
+        f"{history_block}\n\n"
+        "Runtime memory context:\n"
+        f"{memory_block}\n\n"
+        "Return compact briefing:"
+    )
 
 
 def _mock_reply(agent_id: str, user_message: str) -> str:
@@ -372,6 +419,103 @@ def _call_anthropic_with_retry(*, model: str, api_key: str, prompt: str) -> str:
     raise RetryableLLMError("unreachable retry loop")
 
 
+def _call_model_for_prompt(
+    *,
+    provider: str,
+    model: str,
+    prompt: str,
+    gemini_api_key: str,
+    anthropic_api_key: str,
+) -> str:
+    normalized_provider = provider.strip().lower()
+    model_token = model.strip().lower()
+    if normalized_provider == "gemini":
+        if not gemini_api_key:
+            raise FatalLLMError("missing_gemini_api_key")
+        return _call_gemini_with_retry(model=model, api_key=gemini_api_key, prompt=prompt)
+    if normalized_provider == "anthropic":
+        if not anthropic_api_key:
+            raise FatalLLMError("missing_anthropic_api_key")
+        return _call_anthropic_with_retry(model=model, api_key=anthropic_api_key, prompt=prompt)
+    if normalized_provider != "auto":
+        raise FatalLLMError(f"unsupported_provider:{normalized_provider}")
+
+    preferred = ("anthropic", "gemini") if model_token.startswith("claude") else ("gemini", "anthropic")
+    last_error: Exception | None = None
+    for candidate in preferred:
+        try:
+            return _call_model_for_prompt(
+                provider=candidate,
+                model=model,
+                prompt=prompt,
+                gemini_api_key=gemini_api_key,
+                anthropic_api_key=anthropic_api_key,
+            )
+        except (RetryableLLMError, FatalLLMError) as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise FatalLLMError("provider_auto_resolution_failed")
+
+
+def _maybe_preprocess_minerva_context(
+    *,
+    agent_id: str,
+    message: str,
+    history: list[HistoryMessage],
+    memory_context: str | None,
+    gemini_api_key: str,
+    anthropic_api_key: str,
+) -> tuple[list[HistoryMessage], str | None]:
+    if agent_id != "minerva":
+        return history, memory_context
+    if not _env_bool("MINERVA_PREPROCESS_ENABLED", True):
+        return history, memory_context
+
+    trigger_chars = max(400, _env_int("MINERVA_PREPROCESS_TRIGGER_CHARS", 2200))
+    pre_summary_max_chars = max(240, _env_int("MINERVA_PREPROCESS_MAX_CHARS", 900))
+    history_line_limit = max(8, _env_int("MINERVA_PREPROCESS_SOURCE_HISTORY_ITEMS", 20))
+    history_keep_after = max(2, _env_int("MINERVA_PREPROCESS_HISTORY_KEEP", 4))
+    pre_model = os.getenv("MINERVA_PREPROCESS_MODEL", "claude-haiku-4-5").strip()
+    pre_provider = os.getenv("MINERVA_PREPROCESS_PROVIDER", "auto").strip().lower()
+
+    history_lines = _history_to_lines(history, max_items=history_line_limit)
+    memory_len = len(memory_context.strip()) if isinstance(memory_context, str) and memory_context.strip() else 0
+    estimated_len = len(message) + memory_len + sum(len(line) for line in history_lines)
+    if estimated_len < trigger_chars:
+        return history, memory_context
+
+    prompt = _build_minerva_preprocess_prompt(
+        message=message,
+        history_lines=history_lines,
+        memory_context=memory_context,
+        target_max_chars=pre_summary_max_chars,
+    )
+    try:
+        compressed = _call_model_for_prompt(
+            provider=pre_provider,
+            model=pre_model,
+            prompt=prompt,
+            gemini_api_key=gemini_api_key,
+            anthropic_api_key=anthropic_api_key,
+        )
+    except (RetryableLLMError, FatalLLMError):
+        # Non-blocking: fallback to raw context when preprocessor fails.
+        return history, memory_context
+
+    compressed_context = _trim_text(compressed, pre_summary_max_chars)
+    if not compressed_context:
+        return history, memory_context
+
+    reduced_history = history[-history_keep_after:]
+    merged_memory = (
+        "[2-stage memory preprocess]\n"
+        f"{compressed_context}"
+    )
+    return reduced_history, merged_memory
+
+
 def generate_agent_reply(
     *,
     agent_id: str,
@@ -388,44 +532,51 @@ def generate_agent_reply(
     if provider == "mock":
         return _mock_reply(agent_id, message)
 
+    effective_history, effective_memory_context = _maybe_preprocess_minerva_context(
+        agent_id=agent_id,
+        message=message,
+        history=history,
+        memory_context=memory_context,
+        gemini_api_key=gemini_api_key,
+        anthropic_api_key=anthropic_api_key,
+    )
+
     prompt = _build_prompt(
         agent_id=agent_id,
         role_boundary=role_boundary,
         user_message=message,
-        history=history,
-        memory_context=memory_context,
+        history=effective_history,
+        memory_context=effective_memory_context,
     )
 
     if provider == "gemini":
-        if not gemini_api_key:
-            raise FatalLLMError("LLM_PROVIDER=gemini but GEMINI_API_KEY/GOOGLE_API_KEY is missing")
-        return _call_gemini_with_retry(model=model, api_key=gemini_api_key, prompt=prompt)
+        return _call_model_for_prompt(
+            provider="gemini",
+            model=model,
+            prompt=prompt,
+            gemini_api_key=gemini_api_key,
+            anthropic_api_key=anthropic_api_key,
+        )
 
     if provider == "anthropic":
-        if not anthropic_api_key:
-            raise FatalLLMError("LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is missing")
-        return _call_anthropic_with_retry(model=model, api_key=anthropic_api_key, prompt=prompt)
+        return _call_model_for_prompt(
+            provider="anthropic",
+            model=model,
+            prompt=prompt,
+            gemini_api_key=gemini_api_key,
+            anthropic_api_key=anthropic_api_key,
+        )
 
     if provider == "auto":
-        # Keep current behavior by preferring Gemini unless the selected model is Claude.
-        model_token = model.strip().lower()
-        if model_token.startswith("claude"):
-            candidates = ("anthropic", "gemini")
-        else:
-            candidates = ("gemini", "anthropic")
-
-        for candidate in candidates:
-            if candidate == "gemini" and gemini_api_key:
-                try:
-                    return _call_gemini_with_retry(model=model, api_key=gemini_api_key, prompt=prompt)
-                except (RetryableLLMError, FatalLLMError):
-                    continue
-            if candidate == "anthropic" and anthropic_api_key:
-                try:
-                    return _call_anthropic_with_retry(model=model, api_key=anthropic_api_key, prompt=prompt)
-                except (RetryableLLMError, FatalLLMError):
-                    continue
-
-        return _mock_reply(agent_id, message)
+        try:
+            return _call_model_for_prompt(
+                provider="auto",
+                model=model,
+                prompt=prompt,
+                gemini_api_key=gemini_api_key,
+                anthropic_api_key=anthropic_api_key,
+            )
+        except (RetryableLLMError, FatalLLMError):
+            return _mock_reply(agent_id, message)
 
     return _mock_reply(agent_id, message)

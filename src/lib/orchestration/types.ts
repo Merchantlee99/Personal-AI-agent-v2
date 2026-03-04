@@ -4,6 +4,7 @@ export type EventPriority = "critical" | "high" | "normal" | "low";
 export type DispatchMode = "immediate" | "digest";
 export type DispatchDecision = "send_now" | "queue_digest" | "suppressed_cooldown";
 export type JourneyTheme = "morning_briefing" | "evening_wrapup" | "adhoc";
+export type BriefingTier = "P0" | "P1" | "P2";
 
 export type SourceRef = {
   title: string;
@@ -40,6 +41,8 @@ export type AgentEvent = AgentEventInput & {
 export type DispatchPolicy = {
   immediateMinPriority: EventPriority;
   immediateMinConfidence: number;
+  immediateMinAlertScore: number;
+  digestMinAlertScore: number;
   cooldownHours: number;
   digestSlots: string[];
 };

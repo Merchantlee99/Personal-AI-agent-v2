@@ -4,9 +4,34 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+read_env_file_value() {
+  local key="$1"
+  local env_file="${ROOT_DIR}/.env.local"
+  if [[ ! -f "$env_file" ]]; then
+    printf ''
+    return 0
+  fi
+  local line
+  line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    printf ''
+    return 0
+  fi
+  printf '%s' "${line#*=}"
+}
+
+DEFAULT_ALERT_THRESHOLD="$(read_env_file_value LLM_ALERT_429_THRESHOLD)"
+if [[ -z "$DEFAULT_ALERT_THRESHOLD" ]]; then
+  DEFAULT_ALERT_THRESHOLD="0"
+fi
+DEFAULT_STRICT_MODE="$(read_env_file_value LLM_ALERT_STRICT)"
+if [[ -z "$DEFAULT_STRICT_MODE" ]]; then
+  DEFAULT_STRICT_MODE="false"
+fi
+
 SINCE_WINDOW="${LLM_USAGE_SINCE:-24h}"
-ALERT_THRESHOLD_429="${LLM_ALERT_429_THRESHOLD:-0}"
-STRICT_MODE="${LLM_ALERT_STRICT:-false}"
+ALERT_THRESHOLD_429="${LLM_ALERT_429_THRESHOLD:-$DEFAULT_ALERT_THRESHOLD}"
+STRICT_MODE="${LLM_ALERT_STRICT:-$DEFAULT_STRICT_MODE}"
 METRICS_PATH="${LLM_USAGE_METRICS_PATH:-shared_data/logs/llm_usage_metrics.json}"
 
 total_agent_calls=0

@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -36,6 +37,36 @@ MODEL_FALLBACKS = {
     "clio": _parse_model_fallbacks("MODEL_FALLBACK_CLIO") or ["gemini-2.5-flash"],
     "hermes": _parse_model_fallbacks("MODEL_FALLBACK_HERMES") or ["gemini-2.5-flash"],
 }
+
+
+def _parse_csv(name: str, default: set[str]) -> set[str]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return set(default)
+    parsed = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    return parsed or set(default)
+
+
+def _parse_fallback_policy() -> str:
+    token = os.getenv("MODEL_FALLBACK_POLICY", "quota_only").strip().lower()
+    if token in {"quota_only", "retryable"}:
+        return token
+    return "quota_only"
+
+
+def _parse_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+FALLBACK_POLICY = _parse_fallback_policy()
+FALLBACK_RETRYABLE_AGENTS = _parse_csv("MODEL_FALLBACK_RETRYABLE_AGENTS", {"clio", "hermes"})
+FALLBACK_QUOTA_MIN_HITS = _parse_positive_int("MODEL_FALLBACK_QUOTA_MIN_HITS", 1)
 
 ROLE_BOUNDARY = {
     "minerva": "Orchestrates priorities and decisions. Does not execute external search directly.",
@@ -84,6 +115,23 @@ def _model_candidates(agent_id: str) -> list[str]:
     return candidates
 
 
+def _should_try_fallback(
+    *,
+    agent_id: str,
+    index: int,
+    model_count: int,
+    exc: RetryableLLMError,
+    quota_429_hits: int,
+) -> bool:
+    if index >= model_count - 1:
+        return False
+
+    if _is_quota_error(exc):
+        return quota_429_hits >= FALLBACK_QUOTA_MIN_HITS
+
+    return FALLBACK_POLICY == "retryable" and agent_id in FALLBACK_RETRYABLE_AGENTS
+
+
 def _record_usage(
     *,
     agent_id: str,
@@ -92,6 +140,7 @@ def _record_usage(
     status: str,
     quota_429_hits: int = 0,
     error_detail: str | None = None,
+    latency_ms: float | None = None,
 ) -> None:
     if not METRICS_STORE_PATH:
         return
@@ -124,6 +173,10 @@ def _record_usage(
                 "fatal_error": 0,
                 "quota_429": 0,
                 "fallback_applied": 0,
+                "latency_ms_total": 0.0,
+                "latency_ms_count": 0,
+                "latency_ms_max": 0.0,
+                "latency_ms_samples": [],
                 "per_agent": {},
                 "per_model": {},
             },
@@ -144,6 +197,18 @@ def _record_usage(
 
         if configured_model != selected_model:
             entry["fallback_applied"] = int(entry.get("fallback_applied", 0)) + 1
+
+        if latency_ms is not None:
+            safe_latency = max(0.0, float(latency_ms))
+            rounded_latency = round(safe_latency, 2)
+            entry["latency_ms_total"] = float(entry.get("latency_ms_total", 0.0)) + rounded_latency
+            entry["latency_ms_count"] = int(entry.get("latency_ms_count", 0)) + 1
+            entry["latency_ms_max"] = max(float(entry.get("latency_ms_max", 0.0)), rounded_latency)
+            samples = entry.setdefault("latency_ms_samples", [])
+            if isinstance(samples, list):
+                samples.append(rounded_latency)
+                if len(samples) > 1024:
+                    del samples[:-1024]
 
         per_agent = entry.setdefault("per_agent", {})
         if isinstance(per_agent, dict):
@@ -180,6 +245,7 @@ def agent_reply(
     reply: str | None = None
     last_retryable: RetryableLLMError | None = None
     quota_429_hits = 0
+    started_at = time.perf_counter()
 
     for index, model in enumerate(model_candidates):
         selected_model = model
@@ -205,6 +271,7 @@ def agent_reply(
                 selected_model=selected_model,
                 status="success",
                 quota_429_hits=quota_429_hits,
+                latency_ms=(time.perf_counter() - started_at) * 1000.0,
             )
             break
         except RetryableLLMError as exc:
@@ -212,7 +279,13 @@ def agent_reply(
             logger.warning("retryable_llm_error agent=%s model=%s detail=%s", normalized, model, exc)
             if _is_quota_error(exc):
                 quota_429_hits += 1
-            should_try_fallback = index < len(model_candidates) - 1 and _is_quota_error(exc)
+            should_try_fallback = _should_try_fallback(
+                agent_id=normalized,
+                index=index,
+                model_count=len(model_candidates),
+                exc=exc,
+                quota_429_hits=quota_429_hits,
+            )
             if should_try_fallback:
                 logger.warning(
                     "model_fallback_triggered agent=%s from_model=%s to_model=%s reason=%s",
@@ -229,6 +302,7 @@ def agent_reply(
                 status="transient_error",
                 quota_429_hits=quota_429_hits,
                 error_detail=str(exc),
+                latency_ms=(time.perf_counter() - started_at) * 1000.0,
             )
             raise HTTPException(status_code=502, detail=f"LLM transient failure: {exc}") from exc
         except FatalLLMError as exc:
@@ -240,6 +314,7 @@ def agent_reply(
                 status="fatal_error",
                 quota_429_hits=quota_429_hits,
                 error_detail=str(exc),
+                latency_ms=(time.perf_counter() - started_at) * 1000.0,
             )
             raise HTTPException(status_code=502, detail=f"LLM fatal failure: {exc}") from exc
 
@@ -252,6 +327,7 @@ def agent_reply(
             status="transient_error",
             quota_429_hits=quota_429_hits,
             error_detail=detail,
+            latency_ms=(time.perf_counter() - started_at) * 1000.0,
         )
         raise HTTPException(status_code=502, detail=detail)
 

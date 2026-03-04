@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeAgentId } from "@/lib/agents";
-import { evaluateDispatchPolicy, getDispatchPolicy, getJourneyTheme } from "@/lib/orchestration/policy";
+import {
+  evaluateAutoClioPolicy,
+  evaluateDispatchPolicy,
+  getAutoClioPolicy,
+  getDispatchPolicy,
+  getJourneyTheme,
+} from "@/lib/orchestration/policy";
 import {
   appendAgentEvent,
   createInboxTask,
@@ -9,10 +15,12 @@ import {
   makeDedupeKey,
   pushDigestItem,
 } from "@/lib/orchestration/storage";
-import { buildTelegramDispatchPayload, sendTelegramMessage } from "@/lib/orchestration/telegram";
+import { dispatchBriefingToPrimaryChannel } from "@/lib/orchestration/channels";
 import { listGoogleTodayEvents, isGoogleCalendarEnabled } from "@/lib/integrations/google-calendar";
 import { AgentEvent, AgentEventInput, EventPriority, MinervaCalendarBriefing } from "@/lib/orchestration/types";
 import { annotateSourceRefs } from "@/lib/orchestration/source-taxonomy";
+import { parseOrchestrationEventContract } from "@/lib/orchestration/event-contract";
+import { scoreEventSignal } from "@/lib/orchestration/source-scoring";
 
 type EventRequestBody = {
   agentId?: string;
@@ -132,17 +140,6 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-function parseNumber(raw: string | undefined, fallback: number): number {
-  if (!raw) {
-    return fallback;
-  }
-  const parsed = Number(raw.trim());
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return parsed;
-}
-
 function formatCalendarTimeLabel(value: string | null): string {
   if (!value) {
     return "시간미정";
@@ -204,34 +201,22 @@ async function loadMorningCalendarBriefing(theme: AgentEvent["theme"]): Promise<
   }
 }
 
-function shouldAutoSaveClio(event: AgentEvent): { shouldRun: boolean; reason: string } {
-  const enabled = parseBoolean(process.env.HERMES_AUTO_CLIO_SAVE, true);
-  if (!enabled) {
-    return { shouldRun: false, reason: "disabled" };
-  }
-  if (event.agentId !== "hermes") {
-    return { shouldRun: false, reason: "agent_not_hermes" };
-  }
-  if (event.priority === "critical") {
-    return { shouldRun: true, reason: "critical_priority" };
-  }
-  if (event.priority !== "high") {
-    return { shouldRun: false, reason: "priority_below_high" };
-  }
-
-  const minImpact = parseNumber(process.env.HERMES_AUTO_CLIO_SAVE_MIN_IMPACT, 0.75);
-  const impactScore = Number(event.impactScore ?? 0);
-  const tags = new Set((event.tags ?? []).map((token) => token.toLowerCase()));
-  const hasKnowledgeTag = ["research", "paper", "analysis", "insight", "whitepaper"].some((tag) => tags.has(tag));
-
-  if (impactScore >= minImpact || hasKnowledgeTag) {
-    return { shouldRun: true, reason: "high_impact_or_knowledge_tag" };
-  }
-  return { shouldRun: false, reason: "impact_below_threshold" };
-}
-
 export async function POST(request: NextRequest) {
-  const payload = (await request.json()) as EventRequestBody;
+  const raw = await request.json();
+  const parsedContract = parseOrchestrationEventContract(raw);
+  if (!parsedContract.ok) {
+    return NextResponse.json(
+      {
+        error: parsedContract.error,
+        detail: parsedContract.detail,
+        validationErrors: parsedContract.errors ?? [],
+        required: ["schemaVersion", "eventType", "producer", "occurredAt", "payload"],
+      },
+      { status: 400 }
+    );
+  }
+
+  const payload = parsedContract.payload as EventRequestBody;
   const normalized = normalizeInput(payload);
   if (!normalized) {
     return NextResponse.json(
@@ -245,8 +230,16 @@ export async function POST(request: NextRequest) {
 
   const now = new Date();
   const theme = getJourneyTheme(now);
+  const signalScore = scoreEventSignal(normalized);
+  const effectiveConfidence = Math.max(normalized.confidence, signalScore.computedConfidence);
   const event: AgentEvent = {
     ...normalized,
+    confidence: effectiveConfidence,
+    payload: {
+      ...(normalized.payload ?? {}),
+      signal_score: signalScore,
+      _contract: parsedContract.contract,
+    },
     eventId: createEventId(),
     createdAt: now.toISOString(),
     theme,
@@ -259,15 +252,20 @@ export async function POST(request: NextRequest) {
     ? { decision: "send_now" as const, reason: "force_dispatch", mode: "immediate" as const }
     : evaluateDispatchPolicy({
         priority: normalized.priority,
-        confidence: normalized.confidence,
+        confidence: effectiveConfidence,
+        alertScore: signalScore.alertScore,
         policy,
         cooldownUntil,
         now,
       });
 
-  await appendAgentEvent(event);
-
-  const autoClioPolicy = shouldAutoSaveClio(event);
+  const autoClioPolicy = evaluateAutoClioPolicy({
+    agentId: event.agentId,
+    priority: event.priority,
+    impactScore: event.impactScore,
+    tags: event.tags,
+    policy: getAutoClioPolicy(),
+  });
   let autoClio: { created: boolean; reason: string; inboxFile?: string; path?: string; error?: string } = {
     created: false,
     reason: autoClioPolicy.reason,
@@ -307,18 +305,41 @@ export async function POST(request: NextRequest) {
   const chatId = (payload.chatId ?? process.env.TELEGRAM_CHAT_ID ?? "").trim();
   if (outcome.decision === "send_now" && chatId) {
     calendarBriefing = await loadMorningCalendarBriefing(event.theme);
-    const dispatchPayload = await buildTelegramDispatchPayload({ chatId, event, calendarBriefing });
-    const sendResult = await sendTelegramMessage(dispatchPayload);
+    const sendResult = await dispatchBriefingToPrimaryChannel({ chatId, event, calendarBriefing });
     telegram = sendResult.sent ? { sent: true, reason: "ok" } : { sent: false, reason: sendResult.reason };
   }
 
+  const eventForStore: AgentEvent = {
+    ...event,
+    payload: {
+      ...(event.payload ?? {}),
+      _dispatch: {
+        decision: outcome.decision,
+        reason: outcome.reason,
+        mode: outcome.mode,
+        telegram: {
+          attempted: outcome.decision === "send_now" && Boolean(chatId),
+          sent: telegram.sent,
+          reason: telegram.reason,
+          chatConfigured: Boolean(chatId),
+        },
+        autoClioCreated: autoClio.created,
+        autoClioReason: autoClio.reason,
+        calendarBriefingAttached: calendarBriefing !== null,
+      },
+    },
+  };
+  await appendAgentEvent(eventForStore);
+
   return NextResponse.json({
     ok: true,
+    contract: parsedContract.contract,
     eventId: event.eventId,
     theme: event.theme,
     decision: outcome.decision,
     reason: outcome.reason,
     mode: outcome.mode,
+    signalScore,
     policy,
     cooldownUntil: outcome.cooldownUntil ?? null,
     telegram,

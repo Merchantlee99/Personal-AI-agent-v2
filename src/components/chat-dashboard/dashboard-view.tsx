@@ -3,6 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AGENTS, CanonicalAgentId } from "@/lib/agents";
 import { Orb } from "./orb";
+import { ApprovalEscalationPanel } from "./approval-escalation-panel";
+import { RuntimeMetricsPanel } from "./runtime-metrics-panel";
 import { ChatDashboardController } from "./use-chat-controller";
 import styles from "./dashboard-view.module.css";
 
@@ -112,6 +114,9 @@ export function DashboardView({ controller }: DashboardViewProps) {
 
       <div className={styles.bottomPanel}>
         <div className={styles.bottomContent}>
+          <RuntimeMetricsPanel />
+          <ApprovalEscalationPanel />
+
           <div className={styles.scrollArea}>
             {activeHistory.length === 0 ? (
               <div className={styles.quickCommands}>
