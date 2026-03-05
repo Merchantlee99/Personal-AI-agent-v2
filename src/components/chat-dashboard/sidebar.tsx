@@ -81,15 +81,18 @@ export function Sidebar({ activeAgent, agentState, onSelectAgent, theme, colors,
                   borderRadius: "50%",
                   background:
                     agentState === "thinking" ? agent.color.glow :
-                      agentState === "speaking" ? agent.color.glow :
+                      agentState === "working" ? agent.color.glow :
+                        agentState === "warning" ? "#EF4444" :
                         "#22C55E",
                   animation:
                     agentState === "thinking" ? "dot-fast-blink 0.6s ease-in-out infinite" :
-                      agentState === "speaking" ? "dot-speak-pulse 0.4s ease-in-out infinite alternate" :
+                      agentState === "working" ? "dot-speak-pulse 0.4s ease-in-out infinite alternate" :
+                        agentState === "warning" ? "dot-fast-blink 0.4s ease-in-out infinite" :
                         "none",
                   boxShadow:
                     agentState === "thinking" ? `0 0 6px ${agent.color.glow}` :
-                      agentState === "speaking" ? `0 0 8px ${agent.color.glow}` :
+                      agentState === "working" ? `0 0 8px ${agent.color.glow}` :
+                        agentState === "warning" ? "0 0 10px #EF4444" :
                         "none",
                 }} />
               )}

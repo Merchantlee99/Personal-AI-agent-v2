@@ -16,17 +16,17 @@ const AGENT_VISUALS: Record<CanonicalAgentId, AgentVisual> = {
   minerva: {
     displayName: "미네르바",
     greeting: "무엇을 도와드릴까요?",
-    color: { main: "#4338CA", glow: "#6366F1", secondary: "#818CF8", r: 99, g: 102, b: 241 },
+    color: { main: "#3250FF", glow: "#4F6BFF", secondary: "#7EA1FF", r: 79, g: 107, b: 255 },
   },
   clio: {
     displayName: "클리오",
     greeting: "어떤 지식을 정리해드릴까요?",
-    color: { main: "#EA580C", glow: "#F97316", secondary: "#FB923C", r: 249, g: 115, b: 22 },
+    color: { main: "#FF6D2D", glow: "#FF8A3D", secondary: "#FFC071", r: 255, g: 138, b: 61 },
   },
   hermes: {
     displayName: "헤르메스",
     greeting: "어떤 트렌드를 조사할까요?",
-    color: { main: "#059669", glow: "#10B981", secondary: "#34D399", r: 16, g: 185, b: 129 },
+    color: { main: "#0CAB6A", glow: "#19C37D", secondary: "#6BE3B0", r: 25, g: 195, b: 125 },
   },
 };
 

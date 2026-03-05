@@ -1,6 +1,6 @@
 import type { CanonicalAgentId } from "@/lib/agents";
 
-export type AgentState = "idle" | "listening" | "thinking" | "speaking";
+export type AgentState = "idle" | "listening" | "thinking" | "working" | "warning";
 
 export type ChatMessage = {
   role: "user" | "assistant";

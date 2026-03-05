@@ -30,7 +30,7 @@ export function useChatController(): ChatDashboardController {
   const [isFocused, setIsFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histories, setHistories] = useState(createEmptyHistory);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isWorking, setIsWorking] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const speakTimerRef = useRef<number | null>(null);
@@ -40,10 +40,12 @@ export function useChatController(): ChatDashboardController {
   const quickCommands = QUICK_COMMANDS[activeAgent];
 
   let agentState: AgentState = "idle";
-  if (isSending) {
+  if (error) {
+    agentState = "warning";
+  } else if (isSending) {
     agentState = "thinking";
-  } else if (isSpeaking) {
-    agentState = "speaking";
+  } else if (isWorking) {
+    agentState = "working";
   } else if (isFocused || inputText.length > 0) {
     agentState = "listening";
   }
@@ -82,6 +84,8 @@ export function useChatController(): ChatDashboardController {
       [targetAgent]: [...prev[targetAgent], userMessage],
     }));
 
+    let requestSucceeded = false;
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -109,17 +113,22 @@ export function useChatController(): ChatDashboardController {
         ...prev,
         [targetAgent]: [...prev[targetAgent], assistantMessage],
       }));
+      requestSucceeded = true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "알 수 없는 오류");
     } finally {
       setIsSending(false);
-      setIsSpeaking(true);
       if (speakTimerRef.current !== null) {
         window.clearTimeout(speakTimerRef.current);
       }
-      speakTimerRef.current = window.setTimeout(() => {
-        setIsSpeaking(false);
-      }, 2500);
+      if (requestSucceeded) {
+        setIsWorking(true);
+        speakTimerRef.current = window.setTimeout(() => {
+          setIsWorking(false);
+        }, 2200);
+      } else {
+        setIsWorking(false);
+      }
     }
   };
 

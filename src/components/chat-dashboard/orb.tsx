@@ -222,11 +222,15 @@ const CoreSphere = ({ color, agentState }: { color: THREE.Color, agentState: Age
         let targetIntensity = 1.0;
         let pulseVal = 0.0;
 
-        if (agentState === 'listening') targetIntensity = 1.5;
-        if (agentState === 'thinking') targetIntensity = 2.0;
+        if (agentState === 'listening') targetIntensity = 1.45;
+        if (agentState === 'thinking') targetIntensity = 2.15;
+        if (agentState === 'working') targetIntensity = 1.85;
+        if (agentState === 'warning') targetIntensity = 2.4;
 
-        if (agentState === 'speaking') {
-            pulseVal = Math.sin(state.clock.elapsedTime * 15);
+        if (agentState === 'working') {
+            pulseVal = Math.sin(state.clock.elapsedTime * 13);
+        } else if (agentState === 'warning') {
+            pulseVal = Math.sin(state.clock.elapsedTime * 24);
         } else if (agentState === 'idle') {
             pulseVal = Math.sin(state.clock.elapsedTime * 2) * 0.5;
         }
@@ -259,9 +263,11 @@ const EnergyRays = ({ color, agentState }: { color: THREE.Color, agentState: Age
             tSpeed = 1.0; tInt = 2.5;
         } else if (agentState === 'thinking') {
             tSpeed = 3.0; tInt = 3.0; tDen = 6.0; // Chaotic fast rays
-        } else if (agentState === 'speaking') {
-            tSpeed = 1.0; tInt = 2.0;
+        } else if (agentState === 'working') {
+            tSpeed = 1.2; tInt = 2.1;
             tDen = 3.0 + Math.sin(state.clock.elapsedTime * 10); // Rhythmic rays
+        } else if (agentState === 'warning') {
+            tSpeed = 4.4; tInt = 3.6; tDen = 7.4;
         }
 
         u.speed.value = THREE.MathUtils.lerp(u.speed.value, tSpeed, delta * 4);
@@ -300,11 +306,15 @@ const MagicWaves = ({ color, agentState }: { color: THREE.Color, agentState: Age
             tSpeed = 1.0; tFreq = 20.0; tInt = 1.8;
         } else if (agentState === 'thinking') {
             tSpeed = 2.0; tFreq = 30.0; tInt = 2.5;
-        } else if (agentState === 'speaking') {
+        } else if (agentState === 'working') {
             tSpeed = 1.5;
             // Rhythmically adjust frequency to mimic sound waves
             tFreq = 15.0 + Math.sin(state.clock.elapsedTime * 12) * 5.0;
             tInt = 2.0;
+        } else if (agentState === 'warning') {
+            tSpeed = 2.8;
+            tFreq = 38.0;
+            tInt = 2.8;
         }
 
         u.speed.value = THREE.MathUtils.lerp(u.speed.value, tSpeed, delta * 4);
@@ -341,7 +351,8 @@ const RadialParticles = ({ color, agentState }: { color: THREE.Color, agentState
         let globalSpeed = 0.5;
         if (agentState === 'thinking') globalSpeed = 2.0;
         if (agentState === 'listening') globalSpeed = 1.0;
-        if (agentState === 'speaking') globalSpeed = 1.2;
+        if (agentState === 'working') globalSpeed = 1.25;
+        if (agentState === 'warning') globalSpeed = 2.7;
 
         for (let i = 0; i < count; i++) {
             lifetimes[i] += delta * speeds[i] * globalSpeed;
@@ -370,6 +381,79 @@ const RadialParticles = ({ color, agentState }: { color: THREE.Color, agentState
     );
 };
 
+const OrbitRings = ({ color, agentState }: { color: THREE.Color, agentState: AgentState }) => {
+    const ringARef = useRef<THREE.Mesh>(null);
+    const ringBRef = useRef<THREE.Mesh>(null);
+    const sweepRef = useRef<THREE.Mesh>(null);
+    const softColor = useMemo(() => color.clone().lerp(new THREE.Color("#ffffff"), 0.25), [color]);
+
+    useFrame((state, delta) => {
+        const t = state.clock.elapsedTime;
+        let speedA = 0.22;
+        let speedB = -0.18;
+        if (agentState === "thinking") {
+            speedA = 0.82;
+            speedB = -0.62;
+        } else if (agentState === "working") {
+            speedA = 0.46;
+            speedB = -0.34;
+        } else if (agentState === "warning") {
+            speedA = 1.6;
+            speedB = -1.25;
+        }
+        if (ringARef.current) {
+            ringARef.current.rotation.z += delta * speedA;
+        }
+        if (ringBRef.current) {
+            ringBRef.current.rotation.z += delta * speedB;
+        }
+        if (sweepRef.current) {
+            sweepRef.current.rotation.z = t * (agentState === "warning" ? 2.4 : 0.75);
+            const material = sweepRef.current.material as THREE.MeshBasicMaterial;
+            material.opacity = 0.08 + (agentState === "warning" ? 0.15 : 0.04) + Math.sin(t * 4.0) * 0.02;
+        }
+    });
+
+    return (
+        <group position={[0, 0, -0.2]}>
+            <mesh ref={ringARef}>
+                <torusGeometry args={[1.65, 0.018, 14, 180]} />
+                <meshBasicMaterial color={softColor} transparent opacity={0.56} />
+            </mesh>
+            <mesh ref={ringBRef} rotation={[0, 0, Math.PI / 5]}>
+                <torusGeometry args={[1.95, 0.012, 14, 180]} />
+                <meshBasicMaterial color={color} transparent opacity={0.34} />
+            </mesh>
+            <mesh ref={sweepRef} rotation={[0, 0, Math.PI / 3]}>
+                <ringGeometry args={[1.68, 2.0, 90, 1, 0, Math.PI / 4]} />
+                <meshBasicMaterial color={softColor} transparent opacity={0.12} side={THREE.DoubleSide} />
+            </mesh>
+        </group>
+    );
+};
+
+const WarningRing = ({ agentState }: { agentState: AgentState }) => {
+    const warningRef = useRef<THREE.Mesh>(null);
+
+    useFrame((state) => {
+        if (!warningRef.current) return;
+        const material = warningRef.current.material as THREE.MeshBasicMaterial;
+        if (agentState !== "warning") {
+            material.opacity = 0;
+            return;
+        }
+        material.opacity = 0.2 + Math.sin(state.clock.elapsedTime * 16.0) * 0.14;
+        warningRef.current.rotation.z += 0.03;
+    });
+
+    return (
+        <mesh ref={warningRef} position={[0, 0, 0.18]}>
+            <ringGeometry args={[2.05, 2.2, 90]} />
+            <meshBasicMaterial color="#ff4d4d" transparent opacity={0} side={THREE.DoubleSide} />
+        </mesh>
+    );
+};
+
 // ==========================================
 // Main Components
 // ==========================================
@@ -382,23 +466,26 @@ export function BillboardMagicOrb({ agentState, colors }: OrbProps) {
         <group>
             {/* Layers rendered back to front */}
             <EnergyRays color={mainColor} agentState={agentState} />
+            <OrbitRings color={mainColor} agentState={agentState} />
             <MagicWaves color={mainColor} agentState={agentState} />
             <CoreSphere color={mainColor} agentState={agentState} />
             <RadialParticles color={mainColor} agentState={agentState} />
+            <WarningRing agentState={agentState} />
         </group>
     );
 }
 
 // Wrapper Canvas
-export function Orb(props: OrbProps) {
+export function Orb({ agentState, ...rest }: OrbProps) {
+    const bloomIntensity = agentState === "warning" ? 3.6 : agentState === "thinking" ? 3.0 : 2.4;
     return (
         <Canvas camera={{ position: [0, 0, 5], fov: 50 }}>
             {/* Purely shader driven, no lights necessary */}
-            <BillboardMagicOrb {...props} />
+            <BillboardMagicOrb agentState={agentState} {...rest} />
 
             <EffectComposer>
                 <Bloom
-                    intensity={2.5}
+                    intensity={bloomIntensity}
                     luminanceThreshold={0.05}
                     luminanceSmoothing={0.9}
                     mipmapBlur

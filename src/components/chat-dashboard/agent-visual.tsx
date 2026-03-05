@@ -50,7 +50,7 @@ export function AgentVisual({ agentId, state, theme, size = "lg" }: AgentVisualP
                     />
                 )}
 
-                {state === "speaking" && (
+                {state === "working" && (
                     <div
                         style={{
                             position: "absolute",
@@ -70,7 +70,8 @@ export function AgentVisual({ agentId, state, theme, size = "lg" }: AgentVisualP
         idle: { coreScale: 1, coreBright: 0.6, pulseSpeed: 4, ringSpeed: 40, shapeRotate: false, ripple: false, energySpeed: 8 },
         listening: { coreScale: 1.1, coreBright: 0.8, pulseSpeed: 2.5, ringSpeed: 30, shapeRotate: false, ripple: false, energySpeed: 5 },
         thinking: { coreScale: 1.3, coreBright: 1, pulseSpeed: 0.8, ringSpeed: 6, shapeRotate: true, ripple: true, energySpeed: 2 },
-        speaking: { coreScale: 1.15, coreBright: 0.9, pulseSpeed: 0.3, ringSpeed: 20, shapeRotate: false, ripple: true, energySpeed: 4 },
+        working: { coreScale: 1.15, coreBright: 0.9, pulseSpeed: 0.3, ringSpeed: 20, shapeRotate: false, ripple: true, energySpeed: 4 },
+        warning: { coreScale: 1.32, coreBright: 1.0, pulseSpeed: 0.2, ringSpeed: 7, shapeRotate: true, ripple: true, energySpeed: 1.6 },
     }[state];
 
     return (
