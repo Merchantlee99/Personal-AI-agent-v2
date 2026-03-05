@@ -12,6 +12,7 @@
     "verify:ui-inline-style": "bash scripts/verify/check-inline-style-budget.sh",
     "verify:smoke": "bash scripts/verify/smoke-runtime.sh",
     "verify:orchestration": "bash scripts/verify/check-orchestration-flow.sh",
+    "verify:event-contract": "bash scripts/verify/check-event-contract.sh",
     "verify:hermes:schedule": "bash scripts/verify/check-hermes-schedule-minerva.sh",
     "verify:telegram:inline": "bash scripts/verify/check-telegram-inline-actions.sh",
     "verify:telegram:chat": "bash scripts/verify/check-telegram-minerva-chat.sh",

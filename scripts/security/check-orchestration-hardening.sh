@@ -176,6 +176,29 @@ if [[ -n "$TELEGRAM_TOKEN" ]]; then
   else
     echo "[security-orch] OK TELEGRAM_ALLOWED_CALLBACK_ACTIONS contains required actions"
   fi
+
+  APPROVAL_QUEUE="$(normalize_bool "$(get_env TELEGRAM_APPROVAL_QUEUE_ENABLED)")"
+  if [[ "$APPROVAL_QUEUE" == "false" ]]; then
+    echo "[security-orch] WARN TELEGRAM_APPROVAL_QUEUE_ENABLED=false (high-risk inline actions will execute immediately)"
+  else
+    echo "[security-orch] OK TELEGRAM_APPROVAL_QUEUE_ENABLED=true"
+  fi
+  APPROVAL_TTL="$(get_env TELEGRAM_APPROVAL_TTL_SEC)"
+  if [[ -z "$APPROVAL_TTL" ]]; then
+    echo "[security-orch] WARN TELEGRAM_APPROVAL_TTL_SEC is not set (default 300s)"
+  else
+    python3 - <<'PY' "$APPROVAL_TTL" || FAIL=1
+import sys
+raw = sys.argv[1].strip()
+try:
+    value = int(raw)
+except ValueError:
+    raise SystemExit(1)
+if value < 60:
+    raise SystemExit(1)
+print(f"[security-orch] OK TELEGRAM_APPROVAL_TTL_SEC={value}")
+PY
+  fi
 else
   echo "[security-orch] WARN TELEGRAM_BOT_TOKEN is empty; telegram hardening checks skipped"
 fi

@@ -6,6 +6,7 @@ import {
 } from "@/lib/orchestration/types";
 import { sourceCategoryEmoji, sourceCategoryLabel } from "@/lib/orchestration/source-taxonomy";
 import { shouldTranslateToKorean, translateToKorean } from "@/lib/integrations/deepl";
+import type { ApprovalAction, ApprovalRecord } from "@/lib/orchestration/storage";
 
 const PRIORITY_EMOJI: Record<AgentEvent["priority"], string> = {
   critical: "🚨",
@@ -149,6 +150,68 @@ export function createInlineKeyboard(eventId: string): TelegramInlineKeyboard {
       [{ text: "Minerva, 인사이트 분석해", callback_data: `minerva_insight:${eventId}` }],
     ],
   };
+}
+
+function approvalActionLabel(action: ApprovalAction): string {
+  if (action === "clio_save") {
+    return "Clio 저장";
+  }
+  if (action === "hermes_deep_dive") {
+    return "Hermes 추가 수집";
+  }
+  return "Minerva 인사이트 분석";
+}
+
+export function createApprovalStage1Keyboard(approvalId: string): TelegramInlineKeyboard {
+  return {
+    inline_keyboard: [
+      [
+        { text: "네, 진행", callback_data: `approval_yes:${approvalId}` },
+        { text: "아니요", callback_data: `approval_no:${approvalId}` },
+      ],
+    ],
+  };
+}
+
+export function createApprovalStage2Keyboard(approvalId: string): TelegramInlineKeyboard {
+  return {
+    inline_keyboard: [
+      [
+        { text: "최종 승인", callback_data: `approval_commit:${approvalId}` },
+        { text: "취소", callback_data: `approval_no:${approvalId}` },
+      ],
+    ],
+  };
+}
+
+export function renderApprovalStage1Text(approval: ApprovalRecord): string {
+  return trimTelegramText(
+    [
+      "⚠️ 승인 필요",
+      "",
+      `- 액션: ${approvalActionLabel(approval.action)}`,
+      `- 주제: ${shortText(approval.topicKey, 70)}`,
+      `- 제목: ${shortText(approval.eventTitle, 72)}`,
+      "- 1차 확인: 아래 버튼으로 승인 또는 취소를 선택하세요.",
+      `- 만료: ${shortText(approval.expiresAt, 36)}`,
+    ].join("\n"),
+    1200
+  );
+}
+
+export function renderApprovalStage2Text(approval: ApprovalRecord): string {
+  return trimTelegramText(
+    [
+      "⚠️ 최종 승인 필요",
+      "",
+      `- 액션: ${approvalActionLabel(approval.action)}`,
+      `- 주제: ${shortText(approval.topicKey, 70)}`,
+      `- 제목: ${shortText(approval.eventTitle, 72)}`,
+      "- 실수 방지: 정말 진행할지 한 번 더 확인하세요.",
+      `- 만료: ${shortText(approval.expiresAt, 36)}`,
+    ].join("\n"),
+    1200
+  );
 }
 
 function buildCalendarLines(calendarBriefing?: MinervaCalendarBriefing | null): string[] {

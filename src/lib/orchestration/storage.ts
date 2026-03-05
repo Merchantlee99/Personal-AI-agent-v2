@@ -26,6 +26,38 @@ export type TelegramChatHistoryEntry = {
 
 type TelegramChatHistoryStore = Record<string, TelegramChatHistoryEntry[]>;
 
+export type ApprovalAction = "clio_save" | "hermes_deep_dive" | "minerva_insight";
+export type ApprovalStatus =
+  | "pending_stage1"
+  | "pending_stage2"
+  | "executed"
+  | "rejected"
+  | "expired";
+
+export type ApprovalRecord = {
+  id: string;
+  action: ApprovalAction;
+  eventId: string;
+  eventTitle: string;
+  topicKey: string;
+  chatId: string;
+  requestedByUserId: string;
+  requestedAt: string;
+  expiresAt: string;
+  requiredSteps: 1 | 2;
+  status: ApprovalStatus;
+  history: Array<{
+    at: string;
+    type: "created" | "stage1_approved" | "executed" | "rejected" | "expired";
+    actorUserId?: string;
+  }>;
+};
+
+type ApprovalStore = {
+  updatedAt: string;
+  approvals: Record<string, ApprovalRecord>;
+};
+
 const ROOT = process.env.SHARED_ROOT_PATH?.trim() || path.join(process.cwd(), "shared_data");
 const MEMORY_DIR = path.join(ROOT, "shared_memory");
 const AGENT_MEMORY_DIR = path.join(MEMORY_DIR, "agent_memory");
@@ -33,6 +65,7 @@ const EVENTS_FILE = path.join(MEMORY_DIR, "agent_events.json");
 const COOLDOWN_FILE = path.join(MEMORY_DIR, "topic_cooldowns.json");
 const DIGEST_FILE = path.join(MEMORY_DIR, "digest_queue.json");
 const TELEGRAM_CHAT_HISTORY_FILE = path.join(MEMORY_DIR, "telegram_chat_history.json");
+const APPROVAL_QUEUE_FILE = path.join(MEMORY_DIR, "approval_queue.json");
 const MEMORY_MARKDOWN_FILE = path.join(MEMORY_DIR, "memory.md");
 const MEMORY_MARKDOWN_MAX_BYTES = Math.max(32_000, Number(process.env.MEMORY_MD_MAX_BYTES ?? 280_000) || 280_000);
 const MEMORY_MARKDOWN_HEADER = [
@@ -56,6 +89,20 @@ const MEMORY_SKIP_TAGS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter((item) => item.length > 0)
 );
+
+function readPositiveInt(raw: string | undefined, fallback: number, minValue: number): number {
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(minValue, Math.trunc(parsed));
+}
+
+const APPROVAL_TTL_SEC = readPositiveInt(process.env.TELEGRAM_APPROVAL_TTL_SEC, 300, 60);
+const APPROVAL_RETENTION_HOURS = readPositiveInt(process.env.TELEGRAM_APPROVAL_RETENTION_HOURS, 72, 1);
 
 async function ensureMemoryDir() {
   await fs.mkdir(MEMORY_DIR, { recursive: true });
@@ -112,6 +159,64 @@ async function writeJsonFile(filePath: string, payload: unknown) {
   const tmpPath = `${filePath}.tmp`;
   await fs.writeFile(tmpPath, JSON.stringify(payload, null, 2), "utf-8");
   await fs.rename(tmpPath, filePath);
+}
+
+function defaultApprovalStore(): ApprovalStore {
+  return {
+    updatedAt: new Date().toISOString(),
+    approvals: {},
+  };
+}
+
+function createApprovalId() {
+  return crypto.randomBytes(6).toString("hex");
+}
+
+function approvalIsPending(status: ApprovalStatus): boolean {
+  return status === "pending_stage1" || status === "pending_stage2";
+}
+
+function pruneApprovalStore(store: ApprovalStore, now: Date): ApprovalStore {
+  const retentionMs = APPROVAL_RETENTION_HOURS * 3600 * 1000;
+  let dirty = false;
+
+  for (const [id, approval] of Object.entries(store.approvals)) {
+    const expiresAt = Date.parse(approval.expiresAt);
+    if (approvalIsPending(approval.status) && Number.isFinite(expiresAt) && expiresAt <= now.getTime()) {
+      store.approvals[id] = {
+        ...approval,
+        status: "expired",
+        history: [...approval.history, { at: now.toISOString(), type: "expired" }],
+      };
+      dirty = true;
+      continue;
+    }
+
+    const requestedAt = Date.parse(approval.requestedAt);
+    if (!approvalIsPending(approval.status) && Number.isFinite(requestedAt) && now.getTime() - requestedAt > retentionMs) {
+      delete store.approvals[id];
+      dirty = true;
+    }
+  }
+
+  if (dirty) {
+    store.updatedAt = now.toISOString();
+  }
+  return store;
+}
+
+async function readApprovalStore(): Promise<ApprovalStore> {
+  const raw = await readJsonFile<ApprovalStore>(APPROVAL_QUEUE_FILE, defaultApprovalStore());
+  const safe: ApprovalStore = {
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString(),
+    approvals: raw && typeof raw.approvals === "object" && raw.approvals ? raw.approvals : {},
+  };
+  return pruneApprovalStore(safe, new Date());
+}
+
+async function writeApprovalStore(store: ApprovalStore) {
+  store.updatedAt = new Date().toISOString();
+  await writeJsonFile(APPROVAL_QUEUE_FILE, store);
 }
 
 function singleLine(value: string | undefined, maxLen: number) {
@@ -314,6 +419,7 @@ export async function createInboxTask(params: {
   ];
 
   const payload = {
+    schema_version: 1,
     agent_id: params.targetAgentId,
     source: "telegram-inline-action",
     message: lines.join("\n"),
@@ -324,6 +430,173 @@ export async function createInboxTask(params: {
     inboxFile: fileName,
     path: targetPath,
   };
+}
+
+function resolveApprovalRequiredSteps(): 1 | 2 {
+  const raw = readPositiveInt(process.env.TELEGRAM_APPROVAL_REQUIRED_STEPS, 2, 1);
+  return raw >= 2 ? 2 : 1;
+}
+
+export async function createApprovalRequest(params: {
+  action: ApprovalAction;
+  eventId: string;
+  eventTitle: string;
+  topicKey: string;
+  chatId: string;
+  requestedByUserId: string;
+}): Promise<{ approval: ApprovalRecord; reused: boolean }> {
+  const store = await readApprovalStore();
+  const existing = Object.values(store.approvals).find(
+    (item) =>
+      item.action === params.action &&
+      item.eventId === params.eventId &&
+      item.chatId === params.chatId &&
+      item.requestedByUserId === params.requestedByUserId &&
+      approvalIsPending(item.status)
+  );
+  if (existing) {
+    return { approval: existing, reused: true };
+  }
+
+  const now = new Date();
+  const requiredSteps = resolveApprovalRequiredSteps();
+  const approval: ApprovalRecord = {
+    id: createApprovalId(),
+    action: params.action,
+    eventId: params.eventId,
+    eventTitle: params.eventTitle,
+    topicKey: params.topicKey,
+    chatId: params.chatId,
+    requestedByUserId: params.requestedByUserId,
+    requestedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + APPROVAL_TTL_SEC * 1000).toISOString(),
+    requiredSteps,
+    status: "pending_stage1",
+    history: [{ at: now.toISOString(), type: "created", actorUserId: params.requestedByUserId }],
+  };
+  store.approvals[approval.id] = approval;
+  await writeApprovalStore(store);
+  return { approval, reused: false };
+}
+
+export async function getApprovalRequest(approvalId: string): Promise<ApprovalRecord | null> {
+  const store = await readApprovalStore();
+  const found = store.approvals[approvalId];
+  if (!found) {
+    return null;
+  }
+  return found;
+}
+
+export async function approveStageOne(approvalId: string, actorUserId: string): Promise<ApprovalRecord | null> {
+  const store = await readApprovalStore();
+  const found = store.approvals[approvalId];
+  if (!found) {
+    return null;
+  }
+  if (found.status !== "pending_stage1") {
+    return found;
+  }
+  const nextStatus: ApprovalStatus = "pending_stage2";
+  const updated: ApprovalRecord = {
+    ...found,
+    status: nextStatus,
+    history: [...found.history, { at: new Date().toISOString(), type: "stage1_approved", actorUserId }],
+  };
+  store.approvals[approvalId] = updated;
+  await writeApprovalStore(store);
+  return updated;
+}
+
+export async function rejectApprovalRequest(approvalId: string, actorUserId: string): Promise<ApprovalRecord | null> {
+  const store = await readApprovalStore();
+  const found = store.approvals[approvalId];
+  if (!found) {
+    return null;
+  }
+  if (found.status === "rejected") {
+    return found;
+  }
+  const updated: ApprovalRecord = {
+    ...found,
+    status: "rejected",
+    history: [...found.history, { at: new Date().toISOString(), type: "rejected", actorUserId }],
+  };
+  store.approvals[approvalId] = updated;
+  await writeApprovalStore(store);
+  return updated;
+}
+
+export async function markApprovalExecuted(approvalId: string, actorUserId: string): Promise<ApprovalRecord | null> {
+  const store = await readApprovalStore();
+  const found = store.approvals[approvalId];
+  if (!found) {
+    return null;
+  }
+  if (found.status === "executed") {
+    return found;
+  }
+  const updated: ApprovalRecord = {
+    ...found,
+    status: "executed",
+    history: [...found.history, { at: new Date().toISOString(), type: "executed", actorUserId }],
+  };
+  store.approvals[approvalId] = updated;
+  await writeApprovalStore(store);
+  return updated;
+}
+
+export async function listPendingApprovals(limit = 60): Promise<ApprovalRecord[]> {
+  const store = await readApprovalStore();
+  const pending = Object.values(store.approvals)
+    .filter((item) => approvalIsPending(item.status))
+    .sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+  if (pending.length > Math.max(1, limit)) {
+    return pending.slice(0, limit);
+  }
+  return pending;
+}
+
+export async function getApprovalQueueStats() {
+  const store = await readApprovalStore();
+  const approvals = Object.values(store.approvals);
+  const stats = {
+    pending: 0,
+    pendingStage1: 0,
+    pendingStage2: 0,
+    executed: 0,
+    rejected: 0,
+    expired: 0,
+    total: approvals.length,
+    updatedAt: store.updatedAt,
+  };
+
+  for (const approval of approvals) {
+    if (approval.status === "pending_stage1") {
+      stats.pending += 1;
+      stats.pendingStage1 += 1;
+      continue;
+    }
+    if (approval.status === "pending_stage2") {
+      stats.pending += 1;
+      stats.pendingStage2 += 1;
+      continue;
+    }
+    if (approval.status === "executed") {
+      stats.executed += 1;
+      continue;
+    }
+    if (approval.status === "rejected") {
+      stats.rejected += 1;
+      continue;
+    }
+    if (approval.status === "expired") {
+      stats.expired += 1;
+      continue;
+    }
+  }
+
+  return stats;
 }
 
 export async function getTelegramChatHistory(chatId: string, limit = 12): Promise<TelegramChatHistoryEntry[]> {

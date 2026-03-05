@@ -15,6 +15,7 @@ status="$(
     -X POST "${BASE_URL}/api/orchestration/events" \
     -H 'content-type: application/json' \
     -d "{
+        \"schemaVersion\":1,
         \"agentId\":\"hermes\",
       \"topicKey\":\"runtime-memory-check-${RUN_ID}\",
       \"title\":\"Runtime Memory Check ${RUN_ID}\",
