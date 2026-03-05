@@ -3,7 +3,7 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #04060f;
+  background: #030712;
   color: #f5f8ff;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   --agent-rgb: 79, 107, 255;
@@ -12,8 +12,9 @@
 }
 
 .rootWarning {
+  --agent-rgb: 255, 77, 77;
   --agent-glow: #ff4d4d;
-  --agent-secondary: #ff8f8f;
+  --agent-secondary: #ff9b9b;
 }
 
 .agentMinerva {
@@ -40,9 +41,8 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 50% 42%, rgba(var(--agent-rgb), 0.34) 0%, rgba(var(--agent-rgb), 0.15) 25%, transparent 62%),
-    radial-gradient(circle at 50% 70%, rgba(8, 15, 40, 0.68) 0%, transparent 60%);
-  transition: background 0.8s ease;
+    radial-gradient(circle at 50% 28%, rgba(var(--agent-rgb), 0.28) 0%, rgba(var(--agent-rgb), 0.15) 22%, transparent 58%),
+    radial-gradient(circle at 50% 92%, rgba(2, 8, 22, 0.95) 0%, rgba(2, 8, 22, 0) 48%);
 }
 
 .scanGrid {
@@ -50,36 +50,110 @@
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.28;
+  opacity: 0.18;
   background-image:
-    linear-gradient(rgba(var(--agent-rgb), 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(var(--agent-rgb), 0.08) 1px, transparent 1px);
-  background-size: 34px 34px, 34px 34px;
-  mask-image: radial-gradient(circle at 50% 42%, black 10%, transparent 72%);
+    linear-gradient(rgba(var(--agent-rgb), 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--agent-rgb), 0.06) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: radial-gradient(circle at 50% 30%, black 15%, transparent 80%);
 }
 
-.selector {
+.layoutGrid {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(390px, 58vh) 1fr;
+  padding: 26px 24px 20px;
+}
+
+.leftRail {
   position: absolute;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 220px;
+  max-height: 74vh;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(7, 11, 25, 0.82), rgba(7, 11, 25, 0.44));
+  backdrop-filter: blur(14px);
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 16px 12px;
+  z-index: 6;
+}
+
+.leftRailTitle {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(235, 241, 255, 0.72);
+  padding: 0 8px;
+}
+
+.leftRailDivider {
+  width: 100%;
+  height: 1px;
+  margin: 12px 0 14px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.agentList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
 }
 
 .agentButton {
-  width: 42px;
-  height: 42px;
+  width: 100%;
+  min-height: 58px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.03);
   color: rgba(255, 255, 255, 0.52);
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
   cursor: pointer;
   transition: all 0.25s ease;
+}
+
+.agentButtonIconWrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.agentButtonText {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.agentButtonTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(238, 245, 255, 0.9);
+  line-height: 1.2;
+}
+
+.agentButtonHint {
+  font-size: 11px;
+  color: rgba(192, 205, 233, 0.7);
+  line-height: 1.2;
 }
 
 .agentButtonMinerva {
@@ -103,33 +177,30 @@
 }
 
 .agentButton:hover {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(var(--button-rgb), 0.44);
   transform: translateY(-1px);
 }
 
 .agentButtonActive {
-  background: rgba(var(--button-rgb), 0.18);
+  background: rgba(var(--button-rgb), 0.19);
   border-color: var(--button-glow);
-  box-shadow: 0 0 18px rgba(var(--button-rgb), 0.42);
+  box-shadow: 0 0 20px rgba(var(--button-rgb), 0.45);
   color: var(--button-glow);
 }
 
 .agentButtonDisabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.orbStage {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 60vh;
+.centerStage {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 10;
+  padding-top: 4px;
+  padding-inline: clamp(220px, 23vw, 320px);
 }
 
 .orbTransition {
@@ -139,16 +210,49 @@
 }
 
 .orbShell {
-  width: 310px;
-  height: 310px;
+  width: min(66vh, 620px);
+  aspect-ratio: 1 / 1;
   position: relative;
-  filter: drop-shadow(0 0 42px rgba(var(--agent-rgb), 0.32));
-  transition: filter 0.4s ease;
+  filter: drop-shadow(0 0 46px rgba(var(--agent-rgb), 0.32));
+  pointer-events: none;
+}
+
+.orbShell::before {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--agent-rgb), 0.08) 0%,
+    rgba(var(--agent-rgb), 0.045) 28%,
+    rgba(var(--agent-rgb), 0.02) 54%,
+    transparent 78%
+  );
+  pointer-events: none;
+}
+
+.orbShell::after {
+  content: "";
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--agent-rgb), 0.05);
+  box-shadow: 0 0 24px rgba(var(--agent-rgb), 0.06);
+  pointer-events: none;
+}
+
+.orbShell :global(canvas) {
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+  border-radius: 50%;
+  mix-blend-mode: normal;
 }
 
 .agentLabelWrap {
+  margin-top: 8px;
   text-align: center;
-  margin-top: 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -156,7 +260,7 @@
 }
 
 .agentName {
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 600;
   color: #eef3ff;
   letter-spacing: 0.8px;
@@ -226,19 +330,88 @@
   font-weight: 500;
 }
 
-.bottomPanel {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 40vh;
-  min-height: 360px;
+.rightPanel {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 250px;
+  max-height: 74vh;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(7, 11, 25, 0.82), rgba(7, 11, 25, 0.44));
+  backdrop-filter: blur(14px);
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(to bottom, rgba(4, 6, 15, 0) 0%, rgba(4, 6, 15, 0.86) 16%, rgba(4, 6, 15, 1) 100%);
+  gap: 14px;
+  z-index: 6;
+}
+
+.monitorTitle {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: rgba(230, 239, 255, 0.82);
+}
+
+.monitorCards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.monitorCard {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.monitorLabel {
+  font-size: 11px;
+  color: rgba(208, 219, 242, 0.72);
+}
+
+.monitorValue {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(240, 247, 255, 0.96);
+}
+
+.monitorFooter {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(202, 212, 238, 0.75);
+}
+
+.monitorError {
+  margin-top: 6px;
+  border: 1px solid rgba(255, 77, 77, 0.38);
+  background: rgba(255, 77, 77, 0.1);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #ffcbcb;
+}
+
+.chatPanel {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+  margin-inline: clamp(220px, 23vw, 320px);
+  border: 1px solid rgba(var(--agent-rgb), 0.2);
+  border-radius: 24px;
+  background: linear-gradient(to bottom, rgba(4, 8, 20, 0.52) 0%, rgba(4, 8, 20, 0.82) 22%, rgba(4, 8, 20, 0.94) 100%);
   backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(var(--agent-rgb), 0.18);
-  z-index: 20;
+  overflow: hidden;
 }
 
 .bottomContent {
@@ -246,18 +419,20 @@
   max-width: 860px;
   margin: 0 auto;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px 24px 32px;
+  padding: 16px 22px 20px;
 }
 
 .scrollArea {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-bottom: 24px;
+  gap: 16px;
+  padding-bottom: 18px;
   scrollbar-width: none;
 }
 
@@ -343,7 +518,7 @@
   padding: 10px;
   border-radius: 10px;
   font-size: 13px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   text-align: center;
 }
 
@@ -424,10 +599,131 @@
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1260px) {
+  .leftRail {
+    width: 200px;
+  }
+
+  .rightPanel {
+    width: 230px;
+  }
+
+  .centerStage {
+    padding-inline: clamp(200px, 22vw, 280px);
+  }
+
+  .chatPanel {
+    margin-inline: clamp(200px, 22vw, 280px);
+  }
+}
+
+@media (max-width: 1080px) {
+  .layoutGrid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(330px, 52vh) auto 1fr;
+    padding: 14px 12px;
+  }
+
+  .leftRail {
+    position: static;
+    transform: none;
+    width: auto;
+    max-height: none;
+    margin-bottom: 10px;
+    border-radius: 16px;
+  }
+
+  .rightPanel {
+    position: static;
+    transform: none;
+    width: auto;
+    max-height: none;
+    grid-column: 1;
+    grid-row: 2;
+    border-radius: 16px;
+    margin-bottom: 10px;
+    padding: 12px;
+  }
+
+  .monitorCards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chatPanel {
+    grid-column: 1;
+    grid-row: 3;
+    margin-inline: 0;
+    border-radius: 18px;
+  }
+
   .orbShell {
-    width: 270px;
-    height: 270px;
+    width: min(62vh, 520px);
+  }
+
+  .centerStage {
+    padding-inline: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .layoutGrid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(280px, 46vh) auto 1fr;
+  }
+
+  .leftRail {
+    grid-column: 1;
+    grid-row: 1;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 10px 10px;
+  }
+
+  .leftRailDivider {
+    display: none;
+  }
+
+  .agentList {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .agentButton {
+    width: auto;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 6px;
+    justify-content: center;
+  }
+
+  .agentButtonText {
+    display: none;
+  }
+
+  .agentButtonIconWrap {
+    width: 28px;
+    height: 28px;
+  }
+
+  .centerStage {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .rightPanel {
+    grid-column: 1;
+    grid-row: 3;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .chatPanel {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .orbShell {
+    width: min(56vh, 420px);
   }
 
   .agentName {
@@ -438,47 +734,8 @@
     flex-wrap: wrap;
     justify-content: center;
   }
-}
 
-@media (max-width: 640px) {
-  .selector {
-    top: 14px;
-    gap: 8px;
-  }
-
-  .agentButton {
-    width: 38px;
-    height: 38px;
-  }
-
-  .orbStage {
-    height: 56vh;
-  }
-
-  .orbShell {
-    width: 230px;
-    height: 230px;
-  }
-
-  .agentName {
-    font-size: 20px;
-  }
-
-  .bottomPanel {
-    min-height: 320px;
-  }
-
-  .bottomContent {
-    padding: 14px 14px 22px;
-  }
-
-  .bubble {
-    max-width: 92%;
-    font-size: 14px;
-  }
-
-  .quickCommand {
-    font-size: 12px;
-    padding: 9px 14px;
+  .monitorCards {
+    grid-template-columns: 1fr 1fr;
   }
 }

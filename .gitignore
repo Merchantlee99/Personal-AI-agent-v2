@@ -33,6 +33,8 @@ shared_data/workflows/*
 !shared_data/workflows/.gitkeep
 shared_data/runtime/*
 !shared_data/runtime/.gitkeep
+shared_data/render_review/*
+!shared_data/render_review/.gitkeep
 
 # OS
 .DS_Store

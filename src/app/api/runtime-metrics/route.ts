@@ -8,6 +8,8 @@ type JsonObject = Record<string, unknown>;
 const ROOT = process.env.SHARED_ROOT_PATH?.trim() || path.join(process.cwd(), "shared_data");
 const LLM_USAGE_FILE = process.env.LLM_USAGE_METRICS_PATH?.trim() || path.join(ROOT, "logs", "llm_usage_metrics.json");
 const OUTBOX_DIR = path.join(ROOT, "outbox");
+const LOGS_DIR = path.join(ROOT, "logs");
+const UI_LLM_DAILY_LIMIT = Number(process.env.UI_LLM_DAILY_LIMIT ?? process.env.LLM_DAILY_LIMIT ?? 1000);
 
 function isObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -49,6 +51,7 @@ async function readLlmUsageMetrics() {
   const fatalError = asNumber(entry.fatal_error);
   const quota429 = asNumber(entry.quota_429);
   const fallbackApplied = asNumber(entry.fallback_applied);
+  const dailyLimit = Number.isFinite(UI_LLM_DAILY_LIMIT) && UI_LLM_DAILY_LIMIT > 0 ? UI_LLM_DAILY_LIMIT : 1000;
 
   const perAgent = isObject(entry.per_agent) ? entry.per_agent : {};
   const perModel = isObject(entry.per_model) ? entry.per_model : {};
@@ -61,6 +64,8 @@ async function readLlmUsageMetrics() {
     quota429,
     fallbackApplied,
     successRate: ratio(success, total),
+    dailyLimit,
+    remaining: Math.max(0, dailyLimit - total),
     latencyMs: {
       p95: null as number | null,
       note: "latency histogram not yet persisted",
@@ -200,11 +205,52 @@ async function buildDeepLMetrics() {
   };
 }
 
+async function buildSecurityMetrics() {
+  let latestReport: string | null = null;
+  let failCount = 0;
+  let warnCount = 0;
+  let securityFailCount = 0;
+
+  try {
+    const files = await fs.readdir(LOGS_DIR);
+    const reports = files
+      .filter((item) => item.startsWith("daily-verify-") && item.endsWith(".log"))
+      .sort((a, b) => b.localeCompare(a));
+
+    if (reports.length > 0) {
+      latestReport = reports[0];
+      const logRaw = await fs.readFile(path.join(LOGS_DIR, latestReport), "utf-8");
+      const lines = logRaw.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.includes("FAIL")) {
+          failCount += 1;
+        }
+        if (line.includes("WARN")) {
+          warnCount += 1;
+        }
+        if (line.includes("[security-orch] FAIL")) {
+          securityFailCount += 1;
+        }
+      }
+    }
+  } catch {
+    // best-effort metrics only
+  }
+
+  return {
+    openIssues: failCount,
+    securityIssues: securityFailCount,
+    warnings: warnCount,
+    latestReport,
+  };
+}
+
 export async function GET() {
-  const [llm, orchestration, deepl] = await Promise.all([
+  const [llm, orchestration, deepl, security] = await Promise.all([
     readLlmUsageMetrics(),
     buildOrchestrationMetrics(),
     buildDeepLMetrics(),
+    buildSecurityMetrics(),
   ]);
 
   return NextResponse.json({
@@ -213,5 +259,6 @@ export async function GET() {
     llm,
     orchestration,
     deepl,
+    security,
   });
 }

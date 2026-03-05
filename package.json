@@ -35,7 +35,10 @@
     "telegram:rehearsal:send": "bash scripts/telegram/send-rehearsal-briefing.sh",
     "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",
     "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh",
-    "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh"
+    "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh",
+    "render:analyze": "bash scripts/render/analyze-orb-match.sh",
+    "render:extract": "bash scripts/render/extract-video-frames.sh",
+    "render:analyze:latest": "bash scripts/render/analyze-latest-recordings.sh"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

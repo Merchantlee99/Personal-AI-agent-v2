@@ -40,6 +40,9 @@ flowchart TD
 | Human-in-the-loop 승인 큐(2단계 확인) | 완료 | `src/lib/orchestration/storage.ts`, `src/app/api/telegram/webhook/route.ts` |
 | 채널 추상화(Telegram 외) | 미구현 | Telegram 전용 경로로 구현 |
 | 통합 운영 메트릭 API | 완료(백엔드) | `src/app/api/runtime-metrics/route.ts` |
+| 운영 메트릭 UI 패널(API 잔여/보안 이슈/승인 대기) | 완료(프론트) | `src/components/chat-dashboard/dashboard-view.tsx`, `src/components/chat-dashboard/use-chat-controller.ts` |
+| Jarvis형 3-영역 레이아웃(좌 에이전트/중앙 오브/우 모니터링) | 완료 | `src/components/chat-dashboard/dashboard-view.tsx`, `dashboard-view.module.css` |
+| 오브 렌더 프레임 비교 툴체인(SSIM/PSNR/worst-frames) | 완료(개발 워크플로) | `scripts/render/*`, `docs/ORB_RENDER_TUNING.md` |
 | Clio 포맷 계약 버전 고정 | 완료 | `agent/main.py`, `scripts/verify/check-clio-format-contract.sh` |
 | NotebookLM 실운영 연동 | 부분완료 | `agent/main.py`(dispatch 구현), 실제 endpoint 운영 검증은 미완료 |
 | Aegis 운영 감시자 | 기획 | `docs/AEGIS_PLAN.md` |
@@ -88,7 +91,9 @@ flowchart LR
 3. 채널 추상화(향후 Slack/Email 확장 대비)
 4. Aegis 도입(감시/격리 정책 확정 후 단계적 적용)
 5. Pre-VPS 게이트 문서 기준 최종 통과 (`docs/PRE_VPS_GATES.md`)
+6. 오브 레퍼런스 매칭(현재 SSIM 기준 `C` 단계, 추가 튜닝 필요)
 
 ## 6) 운영 판단 가이드
 - "오늘 바로 실운영 가능?" -> **가능** (Telegram + n8n + agent + proxy 기준)
 - "VPS 이전 준비 완료?" -> **아직 아님** (`docs/PRE_VPS_GATES.md` Gate 1~4 선통과 필요)
+- "프론트 레퍼런스 오브 완성?" -> **아직 아님** (`docs/ORB_RENDER_TUNING.md` 기준 반복 튜닝 필요)

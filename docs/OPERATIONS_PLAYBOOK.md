@@ -166,3 +166,37 @@ flowchart TD
 - [ ] `verify:telegram:inline` PASS
 - [ ] `test:proxy` PASS
 - [ ] Auto PR workflow 성공(run failed 없음)
+
+## 10) 오브 렌더 튜닝 루프(개발)
+
+레퍼런스 매칭 작업은 감으로 튜닝하지 않고 프레임 비교 루프로 수행합니다.
+
+```bash
+# 최신 Desktop 녹화 2개 자동 비교
+npm run render:analyze:latest
+
+# 수동 지정 비교
+REFERENCE_VIDEO="/abs/path/reference.mov" CURRENT_VIDEO="/abs/path/current.mov" npm run render:analyze
+
+# 단일 영상 프레임 추출
+INPUT_VIDEO="/abs/path/current.mov" npm run render:extract
+```
+
+산출물:
+- `shared_data/render_review/<run_id>/report.md`
+- `side_by_side.mp4`, `diff.mp4`, `worst_frames/*.png`
+
+## 11) 16GB 로컬 안정성 가드
+
+커널 패닉/메모리 압박 가능성을 줄이기 위한 최소 규칙:
+1. `next dev`는 반드시 1개만 실행
+2. `npm run dev`와 `frontend` 컨테이너를 동시에 장시간 중복 사용하지 않기
+3. WebGL 탭(오브 화면) 다중 오픈 금지
+4. 메모리 압박 시 우선 조치: 불필요 브라우저 탭 종료 -> dev 재기동 -> compose 재확인
+
+권장 점검:
+```bash
+docker stats --no-stream
+docker compose ps
+vm_stat
+```

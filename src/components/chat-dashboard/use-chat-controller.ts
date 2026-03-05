@@ -5,6 +5,39 @@ import { AGENTS, CanonicalAgentId } from "@/lib/agents";
 import { QUICK_COMMANDS } from "./quick-commands";
 import { AgentState, ChatMessage, createEmptyHistory } from "./types";
 
+type RuntimeMetricsSnapshot = {
+  generatedAt: string;
+  llm: {
+    total: number;
+    successRate: number;
+    dailyLimit: number;
+    remaining: number;
+    quota429: number;
+    fatalError: number;
+  };
+  orchestration: {
+    totalEvents: number;
+    pendingApprovals: number;
+    telegram: {
+      attempted: number;
+      sent: number;
+      successRate: number;
+    };
+  };
+  deepl: {
+    required: number;
+    translated: number;
+    failed: number;
+    successRate: number;
+  };
+  security: {
+    openIssues: number;
+    securityIssues: number;
+    warnings: number;
+    latestReport: string | null;
+  };
+};
+
 export type ChatDashboardController = {
   activeAgent: CanonicalAgentId;
   setActiveAgent: (value: CanonicalAgentId) => void;
@@ -18,6 +51,8 @@ export type ChatDashboardController = {
   currentAgent: (typeof AGENTS)[CanonicalAgentId];
   agentState: AgentState;
   quickCommands: { label: string; message: string }[];
+  runtimeMetrics: RuntimeMetricsSnapshot | null;
+  runtimeMetricsError: string | null;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   handleSendText: (rawMessage: string) => Promise<void>;
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -31,6 +66,8 @@ export function useChatController(): ChatDashboardController {
   const [error, setError] = useState<string | null>(null);
   const [histories, setHistories] = useState(createEmptyHistory);
   const [isWorking, setIsWorking] = useState(false);
+  const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null);
+  const [runtimeMetricsError, setRuntimeMetricsError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const speakTimerRef = useRef<number | null>(null);
@@ -58,6 +95,92 @@ export function useChatController(): ChatDashboardController {
     return () => {
       if (speakTimerRef.current !== null) {
         window.clearTimeout(speakTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let timer: number | null = null;
+
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch("/api/runtime-metrics", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`runtime_metrics_http_${response.status}`);
+        }
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          generatedAt?: string;
+          llm?: {
+            total?: number;
+            successRate?: number;
+            dailyLimit?: number;
+            remaining?: number;
+            quota429?: number;
+            fatalError?: number;
+          };
+          orchestration?: {
+            totalEvents?: number;
+            pendingApprovals?: number;
+            telegram?: { attempted?: number; sent?: number; successRate?: number };
+          };
+          deepl?: { required?: number; translated?: number; failed?: number; successRate?: number };
+          security?: { openIssues?: number; securityIssues?: number; warnings?: number; latestReport?: string | null };
+        };
+        if (!mounted || payload.ok !== true || !payload.generatedAt) {
+          return;
+        }
+        setRuntimeMetrics({
+          generatedAt: payload.generatedAt,
+          llm: {
+            total: Number(payload.llm?.total ?? 0),
+            successRate: Number(payload.llm?.successRate ?? 0),
+            dailyLimit: Number(payload.llm?.dailyLimit ?? 0),
+            remaining: Number(payload.llm?.remaining ?? 0),
+            quota429: Number(payload.llm?.quota429 ?? 0),
+            fatalError: Number(payload.llm?.fatalError ?? 0),
+          },
+          orchestration: {
+            totalEvents: Number(payload.orchestration?.totalEvents ?? 0),
+            pendingApprovals: Number(payload.orchestration?.pendingApprovals ?? 0),
+            telegram: {
+              attempted: Number(payload.orchestration?.telegram?.attempted ?? 0),
+              sent: Number(payload.orchestration?.telegram?.sent ?? 0),
+              successRate: Number(payload.orchestration?.telegram?.successRate ?? 0),
+            },
+          },
+          deepl: {
+            required: Number(payload.deepl?.required ?? 0),
+            translated: Number(payload.deepl?.translated ?? 0),
+            failed: Number(payload.deepl?.failed ?? 0),
+            successRate: Number(payload.deepl?.successRate ?? 0),
+          },
+          security: {
+            openIssues: Number(payload.security?.openIssues ?? 0),
+            securityIssues: Number(payload.security?.securityIssues ?? 0),
+            warnings: Number(payload.security?.warnings ?? 0),
+            latestReport: typeof payload.security?.latestReport === "string" ? payload.security.latestReport : null,
+          },
+        });
+        setRuntimeMetricsError(null);
+      } catch (caught) {
+        if (!mounted) {
+          return;
+        }
+        setRuntimeMetricsError(caught instanceof Error ? caught.message : "runtime_metrics_fetch_failed");
+      }
+    };
+
+    void fetchMetrics();
+    timer = window.setInterval(() => {
+      void fetchMetrics();
+    }, 30000);
+
+    return () => {
+      mounted = false;
+      if (timer !== null) {
+        window.clearInterval(timer);
       }
     };
   }, []);
@@ -152,6 +275,8 @@ export function useChatController(): ChatDashboardController {
     currentAgent,
     agentState,
     quickCommands,
+    runtimeMetrics,
+    runtimeMetricsError,
     messagesEndRef,
     handleSendText,
     handleKeyDown,
