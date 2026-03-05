@@ -31,6 +31,8 @@ shared_data/queue/*
 !shared_data/queue/.gitkeep
 shared_data/workflows/*
 !shared_data/workflows/.gitkeep
+shared_data/runtime/*
+!shared_data/runtime/.gitkeep
 
 # OS
 .DS_Store

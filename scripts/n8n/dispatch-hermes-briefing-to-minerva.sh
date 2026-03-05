@@ -35,6 +35,7 @@ if isinstance(items, list):
             sources.append({"title": title, "url": url})
 
 payload = {
+    "schemaVersion": 1,
     "agentId": "hermes",
     "topicKey": topic_key,
     "title": f"Hermes Briefing: {query[:60]}",
@@ -63,4 +64,3 @@ fi
 
 echo "[dispatch-hermes] orchestration event published"
 cat /tmp/hermes_orchestration_result.json
-

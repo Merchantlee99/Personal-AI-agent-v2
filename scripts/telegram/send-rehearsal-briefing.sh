@@ -27,6 +27,7 @@ status="$(
     -X POST "${BASE_URL}/api/orchestration/events" \
     -H 'content-type: application/json' \
     -d "{
+      \"schemaVersion\":1,
       \"agentId\":\"hermes\",
       \"topicKey\":\"${TOPIC_KEY}\",
       \"title\":\"[리허설] Hermes 브리핑 전달 테스트\",

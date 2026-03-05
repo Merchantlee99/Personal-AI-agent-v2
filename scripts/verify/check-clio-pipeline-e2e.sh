@@ -45,6 +45,7 @@ EVENT_STATUS="$(
     -X POST "${BASE_URL}/api/orchestration/events" \
     -H 'content-type: application/json' \
     -d "{
+      \"schemaVersion\":1,
       \"agentId\":\"hermes\",
       \"topicKey\":\"${TOPIC_KEY}\",
       \"title\":\"High Impact Research Signal ${RUN_ID}\",

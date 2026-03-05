@@ -13,8 +13,13 @@ import { buildTelegramDispatchPayload, sendTelegramMessage } from "@/lib/orchest
 import { listGoogleTodayEvents, isGoogleCalendarEnabled } from "@/lib/integrations/google-calendar";
 import { AgentEvent, AgentEventInput, EventPriority, MinervaCalendarBriefing } from "@/lib/orchestration/types";
 import { annotateSourceRefs } from "@/lib/orchestration/source-taxonomy";
+import {
+  ORCHESTRATION_EVENT_SCHEMA_VERSION,
+  validateEventContractV1,
+} from "@/lib/orchestration/event-contract";
 
 type EventRequestBody = {
+  schemaVersion?: number;
   agentId?: string;
   topicKey?: string;
   title?: string;
@@ -231,12 +236,30 @@ function shouldAutoSaveClio(event: AgentEvent): { shouldRun: boolean; reason: st
 }
 
 export async function POST(request: NextRequest) {
-  const payload = (await request.json()) as EventRequestBody;
+  const rawBody = (await request.json()) as unknown;
+  const contract = validateEventContractV1(rawBody, {
+    requireExplicitSchemaVersion: parseBoolean(process.env.ORCH_REQUIRE_SCHEMA_V1, false),
+  });
+  if (!contract.ok) {
+    return NextResponse.json(
+      {
+        error: contract.error,
+        schemaVersion: contract.schemaVersion,
+        mode: contract.mode,
+        required: contract.required,
+        issues: contract.issues,
+      },
+      { status: 400 }
+    );
+  }
+
+  const payload = contract.payload as EventRequestBody;
   const normalized = normalizeInput(payload);
   if (!normalized) {
     return NextResponse.json(
       {
-        error: "invalid_event_payload",
+        error: "invalid_event_payload_after_contract_validation",
+        schemaVersion: ORCHESTRATION_EVENT_SCHEMA_VERSION,
         required: ["agentId", "topicKey", "title", "summary", "priority", "confidence"],
       },
       { status: 400 }
@@ -264,8 +287,6 @@ export async function POST(request: NextRequest) {
         cooldownUntil,
         now,
       });
-
-  await appendAgentEvent(event);
 
   const autoClioPolicy = shouldAutoSaveClio(event);
   let autoClio: { created: boolean; reason: string; inboxFile?: string; path?: string; error?: string } = {
@@ -312,8 +333,30 @@ export async function POST(request: NextRequest) {
     telegram = sendResult.sent ? { sent: true, reason: "ok" } : { sent: false, reason: sendResult.reason };
   }
 
+  await appendAgentEvent({
+    ...event,
+    payload: {
+      ...(event.payload ?? {}),
+      orchestration: {
+        schemaVersion: ORCHESTRATION_EVENT_SCHEMA_VERSION,
+        contractMode: contract.mode,
+        decision: outcome.decision,
+        reason: outcome.reason,
+        mode: outcome.mode,
+        cooldownUntil: outcome.cooldownUntil ?? null,
+        telegram,
+        autoClio: {
+          created: autoClio.created,
+          reason: autoClio.reason,
+        },
+      },
+    },
+  });
+
   return NextResponse.json({
     ok: true,
+    schemaVersion: ORCHESTRATION_EVENT_SCHEMA_VERSION,
+    contractMode: contract.mode,
     eventId: event.eventId,
     theme: event.theme,
     decision: outcome.decision,

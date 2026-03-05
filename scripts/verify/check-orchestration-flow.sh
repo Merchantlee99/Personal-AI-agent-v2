@@ -34,6 +34,7 @@ event_status="$(
     -X POST "${BASE_URL}/api/orchestration/events" \
     -H 'content-type: application/json' \
     -d '{
+      "schemaVersion":1,
       "agentId":"hermes",
       "topicKey":"mobility-market",
       "title":"모빌리티 시장 연결 신호",

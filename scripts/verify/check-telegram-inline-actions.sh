@@ -39,6 +39,7 @@ for _ in 1 2 3 4 5; do
       -X POST "${BASE_URL}/api/orchestration/events" \
       -H 'content-type: application/json' \
       -d "{
+        \"schemaVersion\":1,
         \"agentId\":\"hermes\",
         \"topicKey\":\"${TOPIC_KEY}\",
         \"title\":\"텔레그램 인라인 버튼 리허설\",
@@ -73,15 +74,15 @@ if [[ -z "$EVENT_ID" ]]; then
   exit 1
 fi
 
-post_callback() {
-  local action="$1"
+post_callback_data() {
+  local callback_data="$1"
   local output="$2"
   cat > /tmp/telegram_inline_callback.json <<JSON
 {
   "update_id": 1,
   "callback_query": {
-    "id": "cbq-${action}",
-    "data": "${action}:${EVENT_ID}",
+    "id": "cbq-${RANDOM}",
+    "data": "${callback_data}",
     "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-inline-test" },
     "message": { "chat": { "id": ${SOURCE_CHAT_ID}, "type": "private" } }
   }
@@ -109,55 +110,71 @@ JSON
     sleep 1
   done
   if [[ "$status" != "200" ]]; then
-    echo "[telegram-inline] callback failed action=${action} status=${status}" >&2
+    echo "[telegram-inline] callback failed data=${callback_data} status=${status}" >&2
     cat "$output" >&2 || true
     exit 1
   fi
 }
 
-echo "[telegram-inline] callback clio_save"
-post_callback "clio_save" "/tmp/telegram_inline_clio.json"
-python3 - <<'PY'
+run_action_flow() {
+  local action="$1"
+  local output="/tmp/telegram_inline_${action}.json"
+  post_callback_data "${action}:${EVENT_ID}" "$output"
+  python3 - <<'PY' "$action" "$output"
 import json,sys
-with open('/tmp/telegram_inline_clio.json','r',encoding='utf-8') as f:
-    data=json.load(f)
-if not data.get("ok") or data.get("action") != "clio_save":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] clio_save callback ok")
+from pathlib import Path
+
+action = sys.argv[1]
+output = Path(sys.argv[2])
+payload = json.loads(output.read_text(encoding='utf-8'))
+
+if not payload.get("ok"):
+    raise SystemExit(f"[telegram-inline] {action} initial callback not ok: {payload}")
+
+if payload.get("approvalRequired") is True:
+    approval = payload.get("approval") or {}
+    approval_id = str(approval.get("id") or "").strip()
+    if not approval_id:
+        raise SystemExit(f"[telegram-inline] {action} approval id missing: {payload}")
+    print(f"[telegram-inline] {action} approval queued id={approval_id}")
+    Path(f"/tmp/telegram_inline_{action}_approval_id.txt").write_text(approval_id, encoding='utf-8')
+else:
+    if payload.get("action") != action:
+        raise SystemExit(f"[telegram-inline] {action} action mismatch: {payload}")
+    inbox = payload.get("inbox") or {}
+    if not isinstance(inbox, dict) or not inbox.get("inboxFile"):
+        raise SystemExit(f"[telegram-inline] {action} inbox missing: {payload}")
+    print(f"[telegram-inline] {action} immediate execution ok")
 PY
+
+  if [[ -f "/tmp/telegram_inline_${action}_approval_id.txt" ]]; then
+    local approval_id
+    approval_id="$(cat "/tmp/telegram_inline_${action}_approval_id.txt")"
+    post_callback_data "approval_yes:${approval_id}" "/tmp/telegram_inline_${action}_yes.json"
+    post_callback_data "approval_commit:${approval_id}" "/tmp/telegram_inline_${action}_commit.json"
+    python3 - <<'PY' "$action" "/tmp/telegram_inline_${action}_commit.json"
+import json,sys
+action = sys.argv[1]
+path = sys.argv[2]
+payload = json.loads(open(path,'r',encoding='utf-8').read())
+if not payload.get("ok") or payload.get("action") != action:
+    raise SystemExit(f"[telegram-inline] {action} commit failed: {payload}")
+inbox = payload.get("inbox") or {}
+if not isinstance(inbox, dict) or not inbox.get("inboxFile"):
+    raise SystemExit(f"[telegram-inline] {action} commit inbox missing: {payload}")
+print(f"[telegram-inline] {action} approval execution ok")
+PY
+    rm -f "/tmp/telegram_inline_${action}_approval_id.txt"
+  fi
+}
+
+echo "[telegram-inline] callback clio_save"
+run_action_flow "clio_save"
 
 echo "[telegram-inline] callback hermes_deep_dive"
-post_callback "hermes_deep_dive" "/tmp/telegram_inline_hermes.json"
-python3 - <<'PY'
-import json,sys
-with open('/tmp/telegram_inline_hermes.json','r',encoding='utf-8') as f:
-    data=json.load(f)
-if not data.get("ok") or data.get("action") != "hermes_deep_dive":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] hermes_deep_dive callback ok")
-PY
+run_action_flow "hermes_deep_dive"
 
 echo "[telegram-inline] callback minerva_insight"
-post_callback "minerva_insight" "/tmp/telegram_inline_minerva.json"
-python3 - <<'PY'
-import json,sys
-with open('/tmp/telegram_inline_minerva.json','r',encoding='utf-8') as f:
-    data=json.load(f)
-if not data.get("ok") or data.get("action") != "minerva_insight":
-    print(data)
-    sys.exit(1)
-if not isinstance(data.get("inbox"), dict) or not data["inbox"].get("inboxFile"):
-    print(data)
-    sys.exit(1)
-print("[telegram-inline] minerva_insight callback ok")
-PY
+run_action_flow "minerva_insight"
 
 echo "[telegram-inline] PASS"

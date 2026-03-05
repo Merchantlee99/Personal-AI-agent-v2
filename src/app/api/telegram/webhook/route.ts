@@ -1,12 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   appendTelegramChatHistory,
+  approveStageOne,
   clearTelegramChatHistory,
+  createApprovalRequest,
   createInboxTask,
   findEventById,
+  getApprovalRequest,
+  markApprovalExecuted,
+  rejectApprovalRequest,
   getTelegramChatHistory,
 } from "@/lib/orchestration/storage";
-import { answerTelegramCallback, sendTelegramTextMessage } from "@/lib/orchestration/telegram";
+import type { ApprovalAction } from "@/lib/orchestration/storage";
+import type { AgentEvent } from "@/lib/orchestration/types";
+import {
+  answerTelegramCallback,
+  createApprovalStage1Keyboard,
+  createApprovalStage2Keyboard,
+  renderApprovalStage1Text,
+  renderApprovalStage2Text,
+  sendTelegramMessage,
+  sendTelegramTextMessage,
+} from "@/lib/orchestration/telegram";
 
 type TelegramActor = {
   id?: number | string;
@@ -52,6 +67,8 @@ type AllowlistResult =
     };
 
 const textRateWindow = new Map<string, { windowStart: number; count: number }>();
+const DIRECT_CALLBACK_ACTIONS = new Set<ApprovalAction>(["clio_save", "hermes_deep_dive", "minerva_insight"]);
+const INTERNAL_APPROVAL_ACTIONS = new Set(["approval_yes", "approval_no", "approval_commit"]);
 
 function verifyWebhookSecret(req: NextRequest): boolean {
   const expected = (process.env.TELEGRAM_WEBHOOK_SECRET ?? "").trim();
@@ -75,9 +92,34 @@ function parseAllowlist(raw: string | undefined): Set<string> {
 }
 
 function isAllowedAction(action: string): boolean {
+  if (INTERNAL_APPROVAL_ACTIONS.has(action)) {
+    return true;
+  }
   const configured = parseAllowlist(process.env.TELEGRAM_ALLOWED_CALLBACK_ACTIONS);
   if (configured.size === 0) {
-    return action === "clio_save" || action === "hermes_deep_dive" || action === "minerva_insight";
+    return DIRECT_CALLBACK_ACTIONS.has(action as ApprovalAction);
+  }
+  return configured.has(action);
+}
+
+function approvalQueueEnabled(): boolean {
+  const raw = (process.env.TELEGRAM_APPROVAL_QUEUE_ENABLED ?? "").trim().toLowerCase();
+  if (!raw) {
+    return true;
+  }
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") {
+    return false;
+  }
+  return true;
+}
+
+function requiresApproval(action: ApprovalAction): boolean {
+  if (!approvalQueueEnabled()) {
+    return false;
+  }
+  const configured = parseAllowlist(process.env.TELEGRAM_APPROVAL_REQUIRED_ACTIONS);
+  if (configured.size === 0) {
+    return true;
   }
   return configured.has(action);
 }
@@ -110,15 +152,19 @@ function verifyAllowlist(source: { from?: TelegramActor; chat?: TelegramChat }):
   return { ok: true, userId, chatId };
 }
 
-function parseAction(raw?: string) {
+function parseCallbackData(raw?: string): { action: string; args: string[] } | null {
   if (!raw) {
     return null;
   }
-  const [action, eventId] = raw.split(":");
-  if (!action || !eventId) {
+  const tokens = raw
+    .split(":")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (tokens.length < 2) {
     return null;
   }
-  return { action, eventId };
+  const [action, ...args] = tokens;
+  return { action, args };
 }
 
 function parseIntEnv(name: string, fallback: number, minValue: number): number {
@@ -243,12 +289,75 @@ async function callMinervaChat(params: {
   throw new Error(lastError ?? "chat_request_failed");
 }
 
+async function executeInlineAction(action: ApprovalAction, event: AgentEvent) {
+  if (action === "clio_save") {
+    const inbox = await createInboxTask({
+      targetAgentId: "clio",
+      reason: "telegram_inline_clio_obsidian_save",
+      topicKey: event.topicKey,
+      title: event.title,
+      summary:
+        `다음 내용을 Clio Obsidian 저장 포맷으로 정리해 저장하세요.\n` +
+        `- 핵심 요약: ${event.summary}\n` +
+        `- 필수 출력: 태그, 관련 노트 링크, 출처 URL, notebooklm_ready 메타`,
+      sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
+    });
+    return {
+      action,
+      eventId: event.eventId,
+      inbox,
+      callbackText: "Clio 옵시디언 저장 요청을 접수했습니다.",
+    };
+  }
+
+  if (action === "hermes_deep_dive") {
+    const inbox = await createInboxTask({
+      targetAgentId: "hermes",
+      reason: "telegram_inline_hermes_find_more",
+      topicKey: event.topicKey,
+      title: event.title,
+      summary:
+        `다음 주제와 직접 관련된 뉴스/아티클/트렌드 신호를 더 찾아주세요.\n` +
+        `- 기준 요약: ${event.summary}\n` +
+        `- 역할 제한: 사실/근거 수집만 수행하고, 최종 판단·전략 결론은 작성하지 마세요.\n` +
+        `- 요청 출력: 관련 출처 5개 이상, 상충 관점 1개 이상, 핵심 변화 요약(데이터 중심)\n` +
+        `- 후속 처리: 처리 완료 후 Minerva 인사이트 분석 태스크가 자동 생성됩니다.`,
+      sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
+    });
+    return {
+      action,
+      eventId: event.eventId,
+      inbox,
+      callbackText: "Hermes 근거 수집 요청을 접수했습니다. 완료 후 Minerva 분석이 자동 연결됩니다.",
+    };
+  }
+
+  const inbox = await createInboxTask({
+    targetAgentId: "minerva",
+    reason: "telegram_inline_minerva_insight",
+    topicKey: event.topicKey,
+    title: event.title,
+    summary:
+      `다음 주제에 대해 Minerva 2차적 사고 기반 인사이트 분석을 수행하세요.\n` +
+      `- 핵심 변화(1차): ${event.summary}\n` +
+      `- 2차 분석: 원인-결과 연결고리, 파급 영향도, 리스크/기회 분해\n` +
+      `- 요청 출력: 우선순위 액션 3개`,
+    sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
+  });
+  return {
+    action,
+    eventId: event.eventId,
+    inbox,
+    callbackText: "Minerva 2차 인사이트 분석 요청을 접수했습니다.",
+  };
+}
+
 async function handleCallbackUpdate(callback: TelegramCallbackQuery) {
   if (!callback.id || !callback.data) {
     return NextResponse.json({ ok: true, ignored: true, reason: "no_callback_query" });
   }
 
-  const parsed = parseAction(callback.data);
+  const parsed = parseCallbackData(callback.data);
   if (!parsed) {
     await answerTelegramCallback({ callbackQueryId: callback.id, text: "지원하지 않는 액션입니다." });
     return NextResponse.json({ ok: true, ignored: true, reason: "invalid_callback_data" });
@@ -268,80 +377,181 @@ async function handleCallbackUpdate(callback: TelegramCallbackQuery) {
     return NextResponse.json({ error: "forbidden_callback_source", reason: allowlist.reason }, { status: 403 });
   }
 
-  const event = await findEventById(parsed.eventId);
+  if (parsed.action === "approval_no") {
+    const approvalId = parsed.args[0] ?? "";
+    if (!approvalId) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 ID가 없습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_id_missing" });
+    }
+    const approval = await rejectApprovalRequest(approvalId, allowlist.userId);
+    if (!approval) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청을 찾지 못했습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_found" });
+    }
+    await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청을 취소했습니다." });
+    return NextResponse.json({ ok: true, mode: "callback_query", action: parsed.action, approval });
+  }
+
+  if (parsed.action === "approval_yes") {
+    const approvalId = parsed.args[0] ?? "";
+    if (!approvalId) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 ID가 없습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_id_missing" });
+    }
+    const current = await getApprovalRequest(approvalId);
+    if (!current) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청을 찾지 못했습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_found" });
+    }
+    if (current.status === "expired") {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청이 만료되었습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_expired", approval: current });
+    }
+    if (current.status !== "pending_stage1") {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "이미 처리된 승인 요청입니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_pending_stage1", approval: current });
+    }
+
+    const stageOne = await approveStageOne(approvalId, allowlist.userId);
+    if (!stageOne) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청을 찾지 못했습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_found_after_stage1" });
+    }
+
+    if (stageOne.requiredSteps === 1) {
+      const event = await findEventById(stageOne.eventId);
+      if (!event) {
+        await answerTelegramCallback({ callbackQueryId: callback.id, text: "원본 이벤트를 찾을 수 없습니다.", showAlert: true });
+        return NextResponse.json({ ok: true, ignored: true, reason: "event_not_found_for_approval", approval: stageOne });
+      }
+      const execution = await executeInlineAction(stageOne.action, event);
+      const executed = await markApprovalExecuted(stageOne.id, allowlist.userId);
+      await answerTelegramCallback({
+        callbackQueryId: callback.id,
+        text: execution.callbackText,
+      });
+      return NextResponse.json({
+        ok: true,
+        mode: "callback_query",
+        action: stageOne.action,
+        eventId: event.eventId,
+        inbox: execution.inbox,
+        approval: executed ?? stageOne,
+      });
+    }
+
+    await sendTelegramMessage({
+      chat_id: allowlist.chatId,
+      text: renderApprovalStage2Text(stageOne),
+      reply_markup: createApprovalStage2Keyboard(stageOne.id),
+      disable_web_page_preview: true,
+    });
+    await answerTelegramCallback({ callbackQueryId: callback.id, text: "1차 확인 완료. 최종 승인을 진행하세요." });
+    return NextResponse.json({ ok: true, mode: "callback_query", action: parsed.action, approval: stageOne });
+  }
+
+  if (parsed.action === "approval_commit") {
+    const approvalId = parsed.args[0] ?? "";
+    if (!approvalId) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 ID가 없습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_id_missing" });
+    }
+
+    const approval = await getApprovalRequest(approvalId);
+    if (!approval) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청을 찾지 못했습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_found" });
+    }
+    if (approval.status === "expired") {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "승인 요청이 만료되었습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_expired", approval });
+    }
+    if (!(approval.status === "pending_stage2" || (approval.requiredSteps === 1 && approval.status === "pending_stage1"))) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "최종 승인 가능한 상태가 아닙니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "approval_not_pending_stage2", approval });
+    }
+
+    const event = await findEventById(approval.eventId);
+    if (!event) {
+      await answerTelegramCallback({ callbackQueryId: callback.id, text: "원본 이벤트를 찾을 수 없습니다.", showAlert: true });
+      return NextResponse.json({ ok: true, ignored: true, reason: "event_not_found_for_approval", approval });
+    }
+
+    const execution = await executeInlineAction(approval.action, event);
+    const executed = await markApprovalExecuted(approval.id, allowlist.userId);
+    await answerTelegramCallback({
+      callbackQueryId: callback.id,
+      text: execution.callbackText,
+    });
+    return NextResponse.json({
+      ok: true,
+      mode: "callback_query",
+      action: approval.action,
+      eventId: event.eventId,
+      inbox: execution.inbox,
+      approval: executed ?? approval,
+    });
+  }
+
+  if (!DIRECT_CALLBACK_ACTIONS.has(parsed.action as ApprovalAction)) {
+    await answerTelegramCallback({ callbackQueryId: callback.id, text: "지원하지 않는 액션입니다." });
+    return NextResponse.json({ ok: true, ignored: true, reason: "unsupported_action" });
+  }
+
+  const eventId = parsed.args[0] ?? "";
+  if (!eventId) {
+    await answerTelegramCallback({ callbackQueryId: callback.id, text: "원본 이벤트 ID가 없습니다.", showAlert: true });
+    return NextResponse.json({ ok: true, ignored: true, reason: "event_id_missing" });
+  }
+  const event = await findEventById(eventId);
   if (!event) {
     await answerTelegramCallback({ callbackQueryId: callback.id, text: "원본 이벤트를 찾을 수 없습니다." });
     return NextResponse.json({ ok: true, ignored: true, reason: "event_not_found" });
   }
 
-  if (parsed.action === "clio_save") {
-    const result = await createInboxTask({
-      targetAgentId: "clio",
-      reason: "telegram_inline_clio_obsidian_save",
+  const action = parsed.action as ApprovalAction;
+  if (requiresApproval(action)) {
+    const created = await createApprovalRequest({
+      action,
+      eventId: event.eventId,
+      eventTitle: event.title,
       topicKey: event.topicKey,
-      title: event.title,
-      summary:
-        `다음 내용을 Clio Obsidian 저장 포맷으로 정리해 저장하세요.\n` +
-        `- 핵심 요약: ${event.summary}\n` +
-        `- 필수 출력: 태그, 관련 노트 링크, 출처 URL, notebooklm_ready 메타`,
-      sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
+      chatId: allowlist.chatId,
+      requestedByUserId: allowlist.userId,
+    });
+    await sendTelegramMessage({
+      chat_id: allowlist.chatId,
+      text: renderApprovalStage1Text(created.approval),
+      reply_markup: createApprovalStage1Keyboard(created.approval.id),
+      disable_web_page_preview: true,
     });
     await answerTelegramCallback({
       callbackQueryId: callback.id,
-      text: "Clio 옵시디언 저장 요청을 접수했습니다.",
-    });
-    return NextResponse.json({ ok: true, mode: "callback_query", action: parsed.action, eventId: event.eventId, inbox: result });
-  }
-
-  if (parsed.action === "hermes_deep_dive") {
-    const result = await createInboxTask({
-      targetAgentId: "hermes",
-      reason: "telegram_inline_hermes_find_more",
-      topicKey: event.topicKey,
-      title: event.title,
-      summary:
-        `다음 주제와 직접 관련된 뉴스/아티클/트렌드 신호를 더 찾아주세요.\n` +
-        `- 기준 요약: ${event.summary}\n` +
-        `- 역할 제한: 사실/근거 수집만 수행하고, 최종 판단·전략 결론은 작성하지 마세요.\n` +
-        `- 요청 출력: 관련 출처 5개 이상, 상충 관점 1개 이상, 핵심 변화 요약(데이터 중심)\n` +
-        `- 후속 처리: 처리 완료 후 Minerva 인사이트 분석 태스크가 자동 생성됩니다.`,
-      sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
-    });
-    await answerTelegramCallback({
-      callbackQueryId: callback.id,
-      text: "Hermes 근거 수집 요청을 접수했습니다. 완료 후 Minerva 분석이 자동 연결됩니다.",
-    });
-    return NextResponse.json({ ok: true, mode: "callback_query", action: parsed.action, eventId: event.eventId, inbox: result });
-  }
-
-  if (parsed.action === "minerva_insight") {
-    const result = await createInboxTask({
-      targetAgentId: "minerva",
-      reason: "telegram_inline_minerva_insight",
-      topicKey: event.topicKey,
-      title: event.title,
-      summary:
-        `다음 주제에 대해 Minerva 2차적 사고 기반 인사이트 분석을 수행하세요.\n` +
-        `- 핵심 변화(1차): ${event.summary}\n` +
-        `- 2차 분석: 원인-결과 연결고리, 파급 영향도, 리스크/기회 분해\n` +
-        `- 요청 출력: 우선순위 액션 3개`,
-      sourceRefs: (event.sourceRefs ?? []).map((item) => ({ title: item.title, url: item.url })),
-    });
-    await answerTelegramCallback({
-      callbackQueryId: callback.id,
-      text: "Minerva 2차 인사이트 분석 요청을 접수했습니다.",
+      text: created.reused ? "이미 생성된 승인 요청이 있습니다." : "승인 요청을 생성했습니다.",
     });
     return NextResponse.json({
       ok: true,
       mode: "callback_query",
-      action: parsed.action,
+      action,
       eventId: event.eventId,
-      inbox: result,
+      approvalRequired: true,
+      approval: created.approval,
+      reused: created.reused,
     });
   }
 
-  await answerTelegramCallback({ callbackQueryId: callback.id, text: "지원하지 않는 액션입니다." });
-  return NextResponse.json({ ok: true, ignored: true, reason: "unsupported_action" });
+  const execution = await executeInlineAction(action, event);
+  await answerTelegramCallback({
+    callbackQueryId: callback.id,
+    text: execution.callbackText,
+  });
+  return NextResponse.json({
+    ok: true,
+    mode: "callback_query",
+    action,
+    eventId: event.eventId,
+    inbox: execution.inbox,
+  });
 }
 
 async function handleTextMessageUpdate(message: TelegramMessage, request: NextRequest) {
