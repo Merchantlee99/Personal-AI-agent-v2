@@ -35,6 +35,9 @@ class ClioPipelineResult:
     deepl_applied: bool
 
 
+CLIO_OBSIDIAN_FORMAT_VERSION = "clio_obsidian_v1"
+
+
 TAG_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("#clio", ("clio",)),
     ("#knowledge", ("knowledge", "문서", "지식", "정리")),
@@ -364,8 +367,15 @@ def build_markdown(
     clio: ClioPipelineResult | None = None,
 ) -> str:
     timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    lines = ["---", f"agent_id: {_yaml_quote(agent_id)}", f"timestamp: {_yaml_quote(timestamp)}", f"source: {_yaml_quote(source)}", f"fallback_used: {str(fallback_used).lower()}"]
+    lines = [
+        "---",
+        f"agent_id: {_yaml_quote(agent_id)}",
+        f"timestamp: {_yaml_quote(timestamp)}",
+        f"source: {_yaml_quote(source)}",
+        f"fallback_used: {str(fallback_used).lower()}",
+    ]
     if clio is not None:
+        lines.append(f"clio_format_version: {_yaml_quote(CLIO_OBSIDIAN_FORMAT_VERSION)}")
         lines.append("tags:")
         for tag in clio.tags:
             lines.append(f"  - {_yaml_quote(tag)}")
@@ -468,6 +478,7 @@ def process_file(
     if clio_pipeline is not None:
         verified_payload = {
             "agent_id": routing.agent_id,
+            "format_version": CLIO_OBSIDIAN_FORMAT_VERSION,
             "source": payload["source"],
             "message": payload["message"],
             "tags": clio_pipeline.tags,
@@ -494,6 +505,7 @@ def process_file(
 
     outbox_payload = {
         "agent_id": routing.agent_id,
+        "format_version": CLIO_OBSIDIAN_FORMAT_VERSION if clio_pipeline else None,
         "fallback_used": routing.fallback_used,
         "input_file": path.name,
         "vault_file": shared_relative_vault_path,

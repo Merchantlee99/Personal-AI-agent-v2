@@ -8,11 +8,11 @@
 1. `nanoclaw-llm-proxy` Up(healthy)
 2. `nanoclaw-agent` Up
 3. `nanoclaw-n8n` Up(healthy)
-4. Next.js 서버 Up (`npm run dev` 또는 `next start`)
+4. `nanoclaw-frontend` Up(healthy)
 
 중요 사실
-- 현재 frontend는 docker compose 서비스로 포함되지 않습니다.
-- 컨테이너는 백그라운드 유지 가능, Next.js dev 프로세스는 터미널 종료 시 내려갑니다.
+- 현재 frontend는 docker compose 서비스로 포함됩니다.
+- 기본 운영은 compose 기반(`frontend` 컨테이너), 로컬 `npm run dev`는 개발 모드 선택사항입니다.
 
 ## 2) Day-1 기동 순서
 
@@ -21,11 +21,11 @@ docker compose build
 docker compose up -d
 docker compose ps
 curl -sS http://127.0.0.1:8001/health
-npm run dev -- --hostname 127.0.0.1 --port 3000
+curl -sS http://127.0.0.1:3000/api/runtime-metrics | jq '{ok,generatedAt}'
 ```
 
 성공 기준
-- 3개 컨테이너 모두 Up
+- 4개 컨테이너(frontend/proxy/agent/n8n) 모두 Up
 - `llm-proxy /health`가 `ok`
 - `http://127.0.0.1:3000` 접속 가능
 
@@ -51,6 +51,7 @@ npm run verify:smoke
 npm run verify:orchestration
 npm run verify:telegram:inline
 npm run verify:telegram:chat
+npm run verify:clio:format
 npm run security:check-orchestration
 npm run verify:llm-usage
 ```
@@ -59,6 +60,7 @@ npm run verify:llm-usage
 ```bash
 npm run test:proxy
 npm run verify:clio-e2e
+npm run verify:clio:format
 npm run verify:memory
 npm run verify:llm-runtime
 ```
@@ -86,6 +88,8 @@ npm run telegram:webhook:info
 ### 5-2) Telegram 일반 대화 무응답
 1. `.env.local`의 `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ALLOWED_*` 확인
 2. Next.js 서버 살아있는지 확인
+   - compose 운영 기준: `docker compose ps`에서 `nanoclaw-frontend` 상태 확인
+   - 개발 모드 기준: `npm run dev` 프로세스 확인
 3. `llm-proxy /health` 확인
 4. 대화 경로 검증
 ```bash
@@ -102,6 +106,10 @@ docker compose logs nanoclaw-agent --tail=200
 - `shared_data/obsidian_vault`
 - `shared_data/verified_inbox`
 - `shared_data/outbox`
+4. 포맷 계약 검증
+```bash
+npm run verify:clio:format
+```
 
 ## 6) 변경 반영 운영 규칙
 1. `.env.local` 수정 후 컨테이너 재기동
@@ -158,4 +166,3 @@ flowchart TD
 - [ ] `verify:telegram:inline` PASS
 - [ ] `test:proxy` PASS
 - [ ] Auto PR workflow 성공(run failed 없음)
-

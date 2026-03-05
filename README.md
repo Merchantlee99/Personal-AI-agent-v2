@@ -60,6 +60,7 @@ npm run telegram:webhook:info
 npm run verify:smoke
 npm run verify:orchestration
 npm run verify:telegram:inline
+npm run verify:clio:format
 npm run security:check-orchestration
 npm run test:proxy
 ```
@@ -69,6 +70,8 @@ npm run test:proxy
 | 문서 | 이 문서가 답하는 질문 |
 |---|---|
 | [docs/IMPLEMENTATION_COVERAGE.md](docs/IMPLEMENTATION_COVERAGE.md) | 지금까지 작업이 어디까지 구현됐는가? (완료/부분완료/미완료) |
+| [docs/PRE_VPS_GATES.md](docs/PRE_VPS_GATES.md) | VPS 전환 전에 무엇을 반드시 끝내야 하는가? |
+| [docs/AEGIS_PLAN.md](docs/AEGIS_PLAN.md) | Aegis 운영 감시자를 어떻게 설계/도입할 것인가? |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 컴포넌트가 어떻게 연결되고 데이터가 어디로 흐르는가? |
 | [docs/SECURITY_BASELINE.md](docs/SECURITY_BASELINE.md) | 어떤 위협을 어떤 통제로 막고 있는가? |
 | [docs/OPERATIONS_PLAYBOOK.md](docs/OPERATIONS_PLAYBOOK.md) | 오늘 바로 어떻게 기동/검증/장애대응할 것인가? |

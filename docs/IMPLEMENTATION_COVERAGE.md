@@ -5,7 +5,8 @@
 ## 1) 핵심 결론
 - 구조적 복잡도(스파게티)는 **이전 레거시 대비 크게 감소**했습니다.
 - 보안 경계(내부 HMAC 체인, Telegram allowlist, n8n 안전 필터, 컨테이너 최소권한)는 **기본선 이상**으로 정착됐습니다.
-- 다만 운영 고도화 항목(승인 큐, 채널 추상화, 이벤트 스키마 버전 엄격화, 통합 대시보드)은 **부분 구현 또는 미구현**입니다.
+- 운영 핵심(승인 큐, 이벤트 컨트랙트 검증, 런타임 메트릭 API)은 **구현 완료** 상태입니다.
+- 다만 Pre-VPS 게이트 관점에서 `NotebookLM 실연동`, `운영 UI 가시성`, `채널 추상화`, `Aegis 도입`은 **미완료**입니다.
 
 ## 2) 레거시 대비 개선 축
 
@@ -35,10 +36,13 @@ flowchart TD
 | Google Calendar read-only 연동 | 완료 | `src/lib/integrations/google-calendar.ts`, 관련 API routes |
 | DeepL 선택 번역 최적화 | 완료 | `src/lib/integrations/deepl.ts`, `src/lib/orchestration/telegram.ts` |
 | GitHub Auto PR + Auto Merge | 완료(체크 통과 전 대기형) | `.github/workflows/auto-pr-automerge.yml`, `scripts/github/enable-auto-pr-automerge-settings.sh` |
-| Event Contract(JSON Schema + 버전 강제) | 부분완료 | 입력 정규화는 있음, 엄격 스키마 버전 체크는 미구현 |
-| Human-in-the-loop 승인 큐(2단계 확인) | 미구현 | 현재 Telegram 콜백 즉시 task 생성 방식 |
+| Event Contract(JSON Schema + 버전 검증) | 완료(정책 옵션형) | `src/lib/orchestration/event-contract.ts`, `src/app/api/orchestration/events/route.ts` |
+| Human-in-the-loop 승인 큐(2단계 확인) | 완료 | `src/lib/orchestration/storage.ts`, `src/app/api/telegram/webhook/route.ts` |
 | 채널 추상화(Telegram 외) | 미구현 | Telegram 전용 경로로 구현 |
-| 통합 운영 대시보드(단일 API) | 부분완료 | LLM 사용량 파일은 있으나 `/api/runtime-metrics`는 미구현 |
+| 통합 운영 메트릭 API | 완료(백엔드) | `src/app/api/runtime-metrics/route.ts` |
+| Clio 포맷 계약 버전 고정 | 완료 | `agent/main.py`, `scripts/verify/check-clio-format-contract.sh` |
+| NotebookLM 실운영 연동 | 부분완료 | `agent/main.py`(dispatch 구현), 실제 endpoint 운영 검증은 미완료 |
+| Aegis 운영 감시자 | 기획 | `docs/AEGIS_PLAN.md` |
 
 ## 4) 지금 기준 아키텍처 레벨
 
@@ -79,12 +83,12 @@ flowchart LR
 ```
 
 ## 5) 가장 시급한 남은 보완
-1. Event Contract 버전 강제(`schema_version`, required fields, backward compatibility)
-2. 승인 큐(고위험 액션: 외부전송/자동저장 대량처리/일정 반영 전 승인)
-3. 단일 운영 메트릭 API(`/api/runtime-metrics`) 및 알림 기준
-4. 채널 추상화(향후 Slack/Email 확장 대비)
+1. Frontend 운영 가시성(메트릭/웹훅/브리핑 SLO 상태 카드)
+2. NotebookLM 실연동 검증(`NOTEBOOKLM_SYNC_ENABLED=true` 운영 테스트)
+3. 채널 추상화(향후 Slack/Email 확장 대비)
+4. Aegis 도입(감시/격리 정책 확정 후 단계적 적용)
+5. Pre-VPS 게이트 문서 기준 최종 통과 (`docs/PRE_VPS_GATES.md`)
 
 ## 6) 운영 판단 가이드
 - "오늘 바로 실운영 가능?" -> **가능** (Telegram + n8n + agent + proxy 기준)
-- "대규모 자동화 확장 준비 완료?" -> **아직 아님** (승인 큐/스키마 버전/통합 메트릭 필요)
-
+- "VPS 이전 준비 완료?" -> **아직 아님** (`docs/PRE_VPS_GATES.md` Gate 1~4 선통과 필요)

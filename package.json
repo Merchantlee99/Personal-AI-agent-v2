@@ -18,6 +18,7 @@
     "verify:telegram:chat": "bash scripts/verify/check-telegram-minerva-chat.sh",
     "verify:memory": "bash scripts/verify/check-memory-markdown.sh",
     "verify:clio-e2e": "bash scripts/verify/check-clio-pipeline-e2e.sh",
+    "verify:clio:format": "bash scripts/verify/check-clio-format-contract.sh",
     "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
     "security:check-orchestration": "bash scripts/security/check-orchestration-hardening.sh",
     "security:branch-protect": "bash scripts/security/apply-branch-protection.sh",
