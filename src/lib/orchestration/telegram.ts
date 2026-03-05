@@ -438,12 +438,21 @@ async function postTelegramApi(method: "sendMessage" | "answerCallbackQuery", pa
     return { ok: false, reason: "telegram_token_missing" as const };
   }
   const endpoint = `https://api.telegram.org/bot${token}/${method}`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "telegram_api_failed" as const,
+      detail: error instanceof Error ? error.message : "telegram_fetch_failed",
+    };
+  }
   if (!response.ok) {
     const body = await response.text();
     return {
