@@ -96,7 +96,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 * * *"
+              "expression": "0 9 * * *"
             }
           ]
         }
@@ -131,7 +131,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "10 0 */2 * *"
+              "expression": "10 9 */2 * *"
             }
           ]
         }
@@ -166,7 +166,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "20 0 */3 * *"
+              "expression": "20 9 */3 * *"
             }
           ]
         }

@@ -7,6 +7,8 @@ import {
 import { sourceCategoryEmoji, sourceCategoryLabel } from "@/lib/orchestration/source-taxonomy";
 import { shouldTranslateToKorean, translateToKorean } from "@/lib/integrations/deepl";
 import type { ApprovalAction, ApprovalRecord } from "@/lib/orchestration/storage";
+import http from "node:http";
+import https from "node:https";
 
 const PRIORITY_EMOJI: Record<AgentEvent["priority"], string> = {
   critical: "🚨",
@@ -437,33 +439,93 @@ async function postTelegramApi(method: "sendMessage" | "answerCallbackQuery", pa
   if (!token) {
     return { ok: false, reason: "telegram_token_missing" as const };
   }
-  const endpoint = `https://api.telegram.org/bot${token}/${method}`;
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
+  const base = (process.env.TELEGRAM_API_BASE_URL ?? "https://api.telegram.org").trim().replace(/\/+$/, "");
+  const endpoint = `${base}/bot${token}/${method}`;
+  const timeoutMs = Math.max(2000, Number(process.env.TELEGRAM_API_TIMEOUT_MS ?? 8000) || 8000);
+
+  const requestBody = JSON.stringify(payload);
+  const response = await new Promise<
+    | { ok: true; status: number; body: string }
+    | { ok: false; detail: string }
+  >((resolve) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(endpoint);
+    } catch {
+      resolve({ ok: false, detail: "invalid_telegram_api_base_url" });
+      return;
+    }
+
+    const useHttps = parsed.protocol === "https:";
+    const requestFn = useHttps ? https.request : http.request;
+    const req = requestFn(
+      {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : useHttps ? 443 : 80,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(requestBody),
+        },
+        timeout: timeoutMs,
+        family: 4,
+      },
+      (res) => {
+        res.setEncoding("utf8");
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          resolve({
+            ok: true,
+            status: Number(res.statusCode ?? 0),
+            body,
+          });
+        });
+      }
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("request_timeout"));
     });
-  } catch (error) {
+    req.on("error", (error: Error & { code?: string }) => {
+      const code = error.code ? `${error.code}:` : "";
+      resolve({ ok: false, detail: `${code}${error.message}` });
+    });
+    req.write(requestBody);
+    req.end();
+  });
+
+  if (!response.ok) {
     return {
       ok: false,
       reason: "telegram_api_failed" as const,
-      detail: error instanceof Error ? error.message : "telegram_fetch_failed",
+      detail: response.detail,
     };
   }
-  if (!response.ok) {
-    const body = await response.text();
+  if (response.status < 200 || response.status >= 300) {
     return {
       ok: false,
       reason: "telegram_api_failed" as const,
       status: response.status,
-      detail: body,
+      detail: response.body,
     };
   }
-  const body = await response.json();
-  return { ok: true, reason: "ok" as const, response: body };
+
+  try {
+    const body = JSON.parse(response.body);
+    return { ok: true, reason: "ok" as const, response: body };
+  } catch {
+    return {
+      ok: false,
+      reason: "telegram_api_failed" as const,
+      status: response.status,
+      detail: "invalid_telegram_api_response",
+    };
+  }
 }
 
 export async function sendTelegramMessage(payload: TelegramDispatchPayload) {
