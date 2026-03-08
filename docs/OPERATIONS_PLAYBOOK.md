@@ -1,33 +1,32 @@
 # NanoClaw v2 Operations Playbook
 
-이 문서는 "실운영에서 무엇을, 어떤 순서로, 어떤 기준으로" 실행하는 문서입니다.
+이 문서는 실운영에서 무엇을 어떤 순서로 실행하는지 정리합니다.
 
 ## 1) 운영 전제
 
 필수 실행 상태
 1. `nanoclaw-llm-proxy` Up(healthy)
-2. `nanoclaw-agent` Up
-3. `nanoclaw-n8n` Up(healthy)
-4. `nanoclaw-frontend` Up(healthy)
+2. `nanoclaw-telegram-poller` Up
+3. `nanoclaw-agent` Up
+4. `nanoclaw-n8n` Up(healthy)
 
 중요 사실
-- 현재 frontend는 docker compose 서비스로 포함됩니다.
-- 기본 운영은 compose 기반(`frontend` 컨테이너), 로컬 `npm run dev`는 개발 모드 선택사항입니다.
+- 현재 운영은 Telegram-only입니다. Next.js 프론트는 제거되었습니다.
+- API 진입점은 `llm-proxy:8000`(호스트 `127.0.0.1:8001`)입니다.
 
 ## 2) Day-1 기동 순서
 
 ```bash
-docker compose build
-docker compose up -d
-docker compose ps
+bash scripts/runtime/compose.sh build
+bash scripts/runtime/compose.sh up -d
+bash scripts/runtime/compose.sh ps
 curl -sS http://127.0.0.1:8001/health
-curl -sS http://127.0.0.1:3000/api/runtime-metrics | jq '{ok,generatedAt}'
+curl -sS http://127.0.0.1:8001/api/runtime-metrics | jq '{ok,generatedAt}'
 ```
 
 성공 기준
-- 4개 컨테이너(frontend/proxy/agent/n8n) 모두 Up
+- 4개 컨테이너(proxy/poller/agent/n8n) 모두 Up
 - `llm-proxy /health`가 `ok`
-- `http://127.0.0.1:3000` 접속 가능
 
 ## 3) n8n 워크플로 부트스트랩
 
@@ -47,10 +46,18 @@ npm run n8n:test:hermes-search
 
 일일 점검
 ```bash
+npm run verify:daily
+```
+
+수동 개별 점검
+```bash
 npm run verify:smoke
 npm run verify:orchestration
 npm run verify:telegram:inline
 npm run verify:telegram:chat
+npm run verify:telegram:gcal
+npm run verify:morning:gcal
+npm run verify:runtime:drift
 npm run verify:clio:format
 npm run security:check-orchestration
 npm run verify:llm-usage
@@ -60,9 +67,9 @@ npm run verify:llm-usage
 ```bash
 npm run test:proxy
 npm run verify:clio-e2e
-npm run verify:clio:format
 npm run verify:memory
 npm run verify:llm-runtime
+npm run verify:clio:approval
 ```
 
 ## 5) 장애 대응 런북
@@ -70,27 +77,37 @@ npm run verify:llm-runtime
 ### 5-1) 아침 브리핑 미수신
 1. 서비스 상태 확인
 ```bash
-docker compose ps
+bash scripts/runtime/compose.sh ps
 ```
 2. n8n 로그 확인
 ```bash
-docker compose logs n8n --tail=200
+bash scripts/runtime/compose.sh logs n8n --tail=200
 ```
 3. 오케스트레이션 경로 검증
 ```bash
-FRONTEND_PORT=3000 npm run verify:orchestration
+npm run verify:orchestration
 ```
-4. Telegram webhook 상태 확인
+4. Telegram poller 로그 확인
 ```bash
-npm run telegram:webhook:info
+bash scripts/runtime/compose.sh logs telegram-poller --tail=200
+```
+5. dead-letter 확인 및 필요 시 replay
+```bash
+tail -n 20 shared_data/logs/telegram_poller_dead_letter.jsonl
+npm run telegram:dead-letter:replay -- all
+```
+6. inactive duplicate workflow 정리
+```bash
+npm run n8n:purge:inactive
 ```
 
 ### 5-2) Telegram 일반 대화 무응답
-1. `.env.local`의 `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ALLOWED_*` 확인
-2. Next.js 서버 살아있는지 확인
-   - compose 운영 기준: `docker compose ps`에서 `nanoclaw-frontend` 상태 확인
-   - 개발 모드 기준: `npm run dev` 프로세스 확인
-3. `llm-proxy /health` 확인
+1. `.env.local`의 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ALLOWED_*` 확인
+2. `llm-proxy /health` 확인
+3. `telegram-poller` 로그 확인
+```bash
+bash scripts/runtime/compose.sh logs telegram-poller --tail=200
+```
 4. 대화 경로 검증
 ```bash
 npm run verify:telegram:chat
@@ -100,7 +117,7 @@ npm run verify:telegram:chat
 1. inbox 파일 생성 여부 확인: `shared_data/inbox`
 2. agent 로그 확인
 ```bash
-docker compose logs nanoclaw-agent --tail=200
+bash scripts/runtime/compose.sh logs nanoclaw-agent --tail=200
 ```
 3. 산출물 확인
 - `shared_data/obsidian_vault`
@@ -110,16 +127,38 @@ docker compose logs nanoclaw-agent --tail=200
 ```bash
 npm run verify:clio:format
 ```
+5. knowledge claim 승인 대기 확인
+```bash
+npm run verify:clio:approval
+```
+6. Telegram에서 검토 목록 확인
+```text
+/clio_reviews
+```
+
+### 5-4) Google Calendar 명령 실패
+1. 상태 확인
+```bash
+curl -sS http://127.0.0.1:8001/api/integrations/google-calendar/status \
+  -H "x-internal-token: $INTERNAL_API_TOKEN" \
+  -H "x-timestamp: <ts>" \
+  -H "x-nonce: <nonce>" \
+  -H "x-signature: <sig>"
+```
+2. Telegram에서 `/gcal_status`, `/gcal_today` 확인
+3. 필요 시 `/gcal_connect`로 OAuth 재연결
 
 ## 6) 변경 반영 운영 규칙
 1. `.env.local` 수정 후 컨테이너 재기동
 ```bash
-docker compose up -d --build
+bash scripts/runtime/compose.sh up -d --build
 ```
 2. 재기동 후 핵심 검증
 ```bash
+npm run verify:daily
 npm run verify:smoke
 npm run verify:orchestration
+npm run verify:runtime:drift
 npm run security:check-orchestration
 ```
 3. 운영 중대 변경은 PR 경유(직접 main 반영 지양)
@@ -150,10 +189,10 @@ GITHUB_TOKEN=*** GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 npm run github:a
 
 ```mermaid
 flowchart TD
-  BOOT["compose up + next dev"] --> N8N["n8n bootstrap"]
+  BOOT["compose up"] --> N8N["n8n bootstrap"]
   N8N --> VERIFY["smoke/orchestration/telegram/security"]
   VERIFY --> RUN["daily operations"]
-  RUN --> CHECK["llm usage + logs"]
+  RUN --> CHECK["llm usage + logs + runtime metrics"]
   CHECK -->|"이상"| INCIDENT["runbook 대응"]
   INCIDENT --> VERIFY
   CHECK -->|"정상"| RUN
@@ -163,40 +202,44 @@ flowchart TD
 - [ ] Telegram action allowlist 3종 설정됨
 - [ ] `security:check-orchestration` PASS
 - [ ] `verify:hermes:schedule` PASS
+- [ ] `verify:runtime:drift` PASS
 - [ ] `verify:telegram:inline` PASS
 - [ ] `test:proxy` PASS
 - [ ] Auto PR workflow 성공(run failed 없음)
 
-## 10) 오브 렌더 튜닝 루프(개발)
-
-레퍼런스 매칭 작업은 감으로 튜닝하지 않고 프레임 비교 루프로 수행합니다.
-
-```bash
-# 최신 Desktop 녹화 2개 자동 비교
-npm run render:analyze:latest
-
-# 수동 지정 비교
-REFERENCE_VIDEO="/abs/path/reference.mov" CURRENT_VIDEO="/abs/path/current.mov" npm run render:analyze
-
-# 단일 영상 프레임 추출
-INPUT_VIDEO="/abs/path/current.mov" npm run render:extract
-```
-
-산출물:
-- `shared_data/render_review/<run_id>/report.md`
-- `side_by_side.mp4`, `diff.mp4`, `worst_frames/*.png`
-
-## 11) 16GB 로컬 안정성 가드
-
-커널 패닉/메모리 압박 가능성을 줄이기 위한 최소 규칙:
-1. `next dev`는 반드시 1개만 실행
-2. `npm run dev`와 `frontend` 컨테이너를 동시에 장시간 중복 사용하지 않기
-3. WebGL 탭(오브 화면) 다중 오픈 금지
-4. 메모리 압박 시 우선 조치: 불필요 브라우저 탭 종료 -> dev 재기동 -> compose 재확인
-
-권장 점검:
+## 10) 16GB 로컬 안정성 가드
+1. Docker 컨테이너 4개 외 불필요 프로세스 상시 정리
+2. 장시간 미사용 시 `bash scripts/runtime/compose.sh stop`으로 메모리 회수
+3. 점검 명령
 ```bash
 docker stats --no-stream
-docker compose ps
+bash scripts/runtime/compose.sh ps
 vm_stat
+```
+
+## 11) Host Secret 운영
+
+권장 원칙
+1. `.env.local`에는 시크릿 값 대신 ref만 둡니다.
+2. 실제 값은 macOS Keychain 또는 1Password에 저장합니다.
+3. compose 실행은 `bash scripts/runtime/compose.sh ...`로 고정합니다. 직접 `docker compose --env-file .env.local ...`를 호출하면 Keychain/1Password ref가 빈 값으로 해석될 수 있습니다.
+
+macOS Keychain 예시
+```bash
+security add-generic-password -U -s nanoclaw -a TELEGRAM_BOT_TOKEN -w '...'
+security add-generic-password -U -s nanoclaw -a INTERNAL_API_TOKEN -w '...'
+security add-generic-password -U -s nanoclaw -a INTERNAL_SIGNING_SECRET -w '...'
+```
+
+`.env.local` ref 예시
+```bash
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_TOKEN_KEYCHAIN_SERVICE=nanoclaw
+TELEGRAM_BOT_TOKEN_KEYCHAIN_ACCOUNT=TELEGRAM_BOT_TOKEN
+```
+
+1Password 예시
+```bash
+ANTHROPIC_API_KEY=
+ANTHROPIC_API_KEY_OP_REF=op://Private/NanoClaw/ANTHROPIC_API_KEY
 ```

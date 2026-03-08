@@ -10,8 +10,8 @@ if [[ -f "${REPO_ROOT}/.env.local" ]]; then
   set +a
 fi
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 require_schema="${ORCH_REQUIRE_SCHEMA_V1:-false}"
 require_schema="$(printf '%s' "$require_schema" | tr '[:upper:]' '[:lower:]')"
 
@@ -118,6 +118,28 @@ assert payload.get('error') == 'invalid_event_contract'
 issues = payload.get('issues') or []
 assert any('unsupported schemaVersion' in str(item) for item in issues)
 print('[event-contract] invalid schema rejected')
+PY
+
+echo "[event-contract] case=invalid_force_theme"
+run_case "invalid_force_theme" '{
+  "schemaVersion": 1,
+  "agentId": "hermes",
+  "topicKey": "event-contract-force-theme",
+  "title": "Event Contract Force Theme",
+  "summary": "invalid force theme value",
+  "priority": "normal",
+  "confidence": 0.55,
+  "forceTheme": "nope"
+}' "400" >/tmp/event_contract_invalid_force_theme.json
+
+python3 - <<'PY'
+import json
+from pathlib import Path
+payload = json.loads(Path('/tmp/event_contract_invalid_force_theme.json').read_text(encoding='utf-8'))
+assert payload.get('error') == 'invalid_event_contract'
+issues = payload.get('issues') or []
+assert any('forceTheme must be one of' in str(item) for item in issues)
+print('[event-contract] invalid forceTheme rejected')
 PY
 
 echo "[event-contract] PASS"

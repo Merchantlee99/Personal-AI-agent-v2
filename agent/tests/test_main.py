@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 FIXTURE_CONFIG = Path(__file__).resolve().parent / "fixtures" / "agents.json"
 os.environ.setdefault("AGENT_CONFIG_PATH", str(FIXTURE_CONFIG))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from main import process_file
 
@@ -23,7 +25,7 @@ class AgentPipelineTests(unittest.TestCase):
             directory.mkdir(parents=True, exist_ok=True)
         return inbox, outbox, archive, vault, verified
 
-    def test_clio_pipeline_writes_tags_links_and_verified_payload(self) -> None:
+    def test_clio_pipeline_writes_template_driven_note_and_verified_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             inbox, outbox, archive, vault, verified = self._make_dirs(root)
@@ -50,8 +52,18 @@ class AgentPipelineTests(unittest.TestCase):
             outbox_payload = json.loads(outbox_files[0].read_text(encoding="utf-8"))
             self.assertEqual(outbox_payload["agent_id"], "clio")
             self.assertTrue(outbox_payload["notebooklm_ready"])
-            self.assertIn("#clio", outbox_payload["tags"])
-            self.assertIn("[[Hermes-Daily-Briefing]]", outbox_payload["related_links"])
+            self.assertEqual(outbox_payload["format_version"], "clio_obsidian_v2")
+            self.assertEqual(outbox_payload["type"], "article")
+            self.assertEqual(outbox_payload["folder"], "02-References")
+            self.assertEqual(outbox_payload["template_name"], "tpl-article.md")
+            self.assertEqual(outbox_payload["draft_state"], "draft")
+            self.assertEqual(outbox_payload["note_action"], "create")
+            self.assertIsNone(outbox_payload["update_target"])
+            self.assertEqual(outbox_payload["merge_candidates"], [])
+            self.assertGreaterEqual(outbox_payload["classification_confidence"], 0.55)
+            self.assertIn("type/article", outbox_payload["tags"])
+            self.assertIn("source/example", outbox_payload["tags"])
+            self.assertIn("[[trend-ai-overview]]", outbox_payload["related_notes"])
             self.assertIn("https://example.com/report", outbox_payload["source_urls"])
             self.assertEqual(outbox_payload["source_language"], "en")
             self.assertEqual(outbox_payload["deepl_target_lang"], "KO")
@@ -62,18 +74,33 @@ class AgentPipelineTests(unittest.TestCase):
             vault_path = root / outbox_payload["vault_file"]
             vault_body = vault_path.read_text(encoding="utf-8")
             self.assertIn("---", vault_body)
+            self.assertIn('clio_format_version: "clio_obsidian_v2"', vault_body)
+            self.assertIn('type: "article"', vault_body)
+            self.assertNotIn("# NanoClaw Inbox Capture", vault_body)
+            self.assertIn("## 한 줄 요약", vault_body)
+            self.assertIn("## 3가지 핵심 포인트", vault_body)
             self.assertIn("## Clio Metadata", vault_body)
-            self.assertIn("## Clio Links", vault_body)
+            self.assertIn("## Clio Relationships", vault_body)
             self.assertIn("https://example.com/report", vault_body)
-            self.assertIn('source_language: "en"', vault_body)
+            self.assertIn("- source_language: en", vault_body)
             self.assertIn("deepl_required: true", vault_body)
 
             verified_files = sorted(verified.glob("*.json"))
             self.assertEqual(len(verified_files), 1)
             verified_payload = json.loads(verified_files[0].read_text(encoding="utf-8"))
             self.assertEqual(verified_payload["agent_id"], "clio")
+            self.assertEqual(verified_payload["format_version"], "clio_obsidian_v2")
             self.assertTrue(verified_payload["notebooklm"]["ready"])
-            self.assertIn("#clio", verified_payload["tags"])
+            self.assertEqual(verified_payload["type"], "article")
+            self.assertEqual(verified_payload["folder"], "02-References")
+            self.assertEqual(verified_payload["template_name"], "tpl-article.md")
+            self.assertEqual(verified_payload["draft_state"], "draft")
+            self.assertEqual(verified_payload["note_action"], "create")
+            self.assertIsNone(verified_payload["update_target"])
+            self.assertEqual(verified_payload["merge_candidates"], [])
+            self.assertIn("type/article", verified_payload["tags"])
+            self.assertIn("[[trend-ai-overview]]", verified_payload["related_notes"])
+            self.assertIn("clio_format_version", verified_payload["frontmatter"])
             self.assertIn("https://example.com/report", verified_payload["source_urls"])
             self.assertEqual(verified_payload["source_language"], "en")
             self.assertTrue(verified_payload["deepl"]["required"])
@@ -107,8 +134,11 @@ class AgentPipelineTests(unittest.TestCase):
             outbox_payload = json.loads(outbox_files[0].read_text(encoding="utf-8"))
             self.assertEqual(outbox_payload["agent_id"], "hermes")
             self.assertFalse(outbox_payload["notebooklm_ready"])
+            self.assertIsNone(outbox_payload["format_version"])
             self.assertEqual(outbox_payload["tags"], [])
-            self.assertEqual(outbox_payload["related_links"], [])
+            self.assertEqual(outbox_payload["project_links"], [])
+            self.assertEqual(outbox_payload["moc_candidates"], [])
+            self.assertEqual(outbox_payload["related_notes"], [])
             self.assertEqual(outbox_payload["source_urls"], [])
             self.assertIsNone(outbox_payload["source_language"])
             self.assertFalse(outbox_payload["deepl_required"])
@@ -171,6 +201,98 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(followup_payload["source"], "agent-followup")
             self.assertIn("[trigger] hermes_deep_dive_auto_minerva_insight", followup_payload["message"])
             self.assertIn("deep_dive_vault_file:", followup_payload["message"])
+
+    def test_knowledge_note_creates_claim_review_queue_and_clio_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox, outbox, archive, vault, verified = self._make_dirs(root)
+            previous_shared_root = os.environ.get("SHARED_ROOT")
+            os.environ["SHARED_ROOT"] = str(root)
+            try:
+                payload_file = inbox / "clio-knowledge.json"
+                payload_file.write_text(
+                    json.dumps(
+                        {
+                            "agent_id": "clio",
+                            "source": "unit-test",
+                            "message": "\n".join(
+                                [
+                                    "[title] PM은 측정 가능한 학습 루프를 설계해야 한다",
+                                    "[topic] pm-learning-loop",
+                                    "",
+                                    "핵심 주장: PM은 측정 가능한 학습 루프를 설계해야 한다.",
+                                    "왜 이렇게 생각하는가: 제품 개선은 측정 없이는 반복할 수 없기 때문이다.",
+                                ]
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+
+                process_file(payload_file, inbox, outbox, archive, vault, verified)
+            finally:
+                if previous_shared_root is None:
+                    os.environ.pop("SHARED_ROOT", None)
+                else:
+                    os.environ["SHARED_ROOT"] = previous_shared_root
+
+            outbox_payload = json.loads(next(outbox.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertEqual(outbox_payload["type"], "knowledge")
+            self.assertTrue(outbox_payload["claim_review_required"])
+            self.assertTrue(outbox_payload["claim_review_id"])
+
+            verified_payload = json.loads(next(verified.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertEqual(verified_payload["type"], "knowledge")
+            self.assertTrue(verified_payload["claim_review_required"])
+            self.assertEqual(verified_payload["claim_review_id"], outbox_payload["claim_review_id"])
+
+            queue_path = root / "shared_memory" / "clio_claim_review_queue.json"
+            self.assertTrue(queue_path.exists())
+            queue_payload = json.loads(queue_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(queue_payload["items"]), 1)
+            self.assertEqual(queue_payload["items"][0]["status"], "pending_user_review")
+            self.assertEqual(queue_payload["items"][0]["id"], outbox_payload["claim_review_id"])
+
+            memory_path = root / "shared_memory" / "clio_knowledge_memory.json"
+            self.assertTrue(memory_path.exists())
+            memory_payload = json.loads(memory_path.read_text(encoding="utf-8"))
+            self.assertEqual(memory_payload["recentNotes"][0]["type"], "knowledge")
+            self.assertTrue(memory_payload["recentNotes"][0]["claimReviewRequired"])
+
+    def test_clio_pipeline_marks_update_candidate_when_matching_note_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox, outbox, archive, vault, verified = self._make_dirs(root)
+            (vault / "01-Knowledge").mkdir(parents=True, exist_ok=True)
+            (vault / "01-Knowledge" / "PM 학습 루프.md").write_text("# existing\n", encoding="utf-8")
+
+            payload_file = inbox / "clio-update.json"
+            payload_file.write_text(
+                json.dumps(
+                    {
+                        "agent_id": "clio",
+                        "source": "unit-test",
+                        "message": "\n".join(
+                            [
+                                "[title] PM 학습 루프",
+                                "[topic] pm-learning-loop",
+                                "",
+                                "PM 학습 루프에 대한 개인 지식 정리",
+                            ]
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            process_file(payload_file, inbox, outbox, archive, vault, verified)
+
+            outbox_payload = json.loads(next(outbox.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertEqual(outbox_payload["note_action"], "update_candidate")
+            self.assertEqual(outbox_payload["update_target"], "[[PM 학습 루프]]")
+            self.assertEqual(outbox_payload["merge_candidates"], [])
 
 
 if __name__ == "__main__":

@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 MEMORY_FILE="shared_data/shared_memory/memory.md"
 
 echo "[memory-md] send orchestration event"

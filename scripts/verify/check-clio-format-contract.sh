@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 SHARED_ROOT="${SHARED_ROOT_PATH:-${ROOT_DIR}/shared_data}"
 VERIFIED_DIR="${SHARED_ROOT}/verified_inbox"
-FORMAT_VERSION_EXPECTED="clio_obsidian_v1"
+FORMAT_VERSION_EXPECTED="clio_obsidian_v2"
 
 echo "[clio-format] scanning latest clio verified payload"
 
@@ -36,7 +36,7 @@ for path in root.rglob("*.json"):
 if not candidates:
     print("")
 else:
-    candidates.sort(key=lambda item: item.name, reverse=True)
+    candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
     print(candidates[0])
 PY
 )"
@@ -64,6 +64,15 @@ assert payload.get("agent_id") == "clio", f"agent_id is not clio: {payload.get('
 assert payload.get("format_version") == expected_version, (
     f"format_version mismatch: {payload.get('format_version')} != {expected_version}"
 )
+assert isinstance(payload.get("type"), str) and payload["type"], "type missing"
+assert isinstance(payload.get("folder"), str) and payload["folder"], "folder missing"
+assert isinstance(payload.get("template_name"), str) and payload["template_name"].startswith("tpl-"), "template_name missing"
+assert payload.get("draft_state") == "draft", f"draft_state mismatch: {payload.get('draft_state')}"
+assert isinstance(payload.get("classification_confidence"), (int, float)), "classification_confidence missing"
+assert isinstance(payload.get("project_links"), list), "project_links missing"
+assert isinstance(payload.get("moc_candidates"), list), "moc_candidates missing"
+assert isinstance(payload.get("related_notes"), list), "related_notes missing"
+assert isinstance(payload.get("frontmatter"), dict), "frontmatter missing"
 
 notebooklm = payload.get("notebooklm") or {}
 assert notebooklm.get("ready") is True, "notebooklm.ready must be true for clio verified payload"
@@ -73,7 +82,11 @@ assert isinstance(vault_file, str) and vault_file.strip(), "notebooklm.vault_fil
 vault_path = shared_root / vault_file
 assert vault_path.is_file(), f"vault markdown not found: {vault_path}"
 content = vault_path.read_text(encoding="utf-8")
-assert "clio_format_version: \"clio_obsidian_v1\"" in content, "frontmatter clio_format_version missing"
+assert "clio_format_version: \"clio_obsidian_v2\"" in content, "frontmatter clio_format_version missing"
+assert "## Clio Metadata" in content, "Clio metadata section missing"
+assert "## Clio Relationships" in content, "Clio relationships section missing"
+assert "## NotebookLM Summary" in content, "NotebookLM summary section missing"
+assert "# NanoClaw Inbox Capture" not in content, "legacy inbox capture header still present"
 
 print("[clio-format] payload + vault contract verified")
 print(f"[clio-format] vault_file={vault_file}")

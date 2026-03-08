@@ -48,6 +48,40 @@ class AgentRoutingFallbackTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 502)
         self.assertIn("LLM transient failure", str(raised.exception.detail))
 
+    def test_agent_reply_injects_clio_memory_context_when_missing(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_generate(**kwargs: object) -> str:
+            captured.update(kwargs)
+            return "clio reply"
+
+        with (
+            patch("app.main.get_clio_knowledge_memory", return_value={"projects": ["NanoClaw"]}),
+            patch("app.main.render_clio_knowledge_memory_context", return_value="clio context"),
+            patch("app.main.generate_agent_reply", side_effect=fake_generate),
+        ):
+            result = agent_reply(AgentRequest(agent_id="clio", message="test"), None)
+
+        self.assertEqual(result.reply, "clio reply")
+        self.assertEqual(captured.get("memory_context"), "clio context")
+
+    def test_agent_reply_injects_hermes_memory_context_when_missing(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_generate(**kwargs: object) -> str:
+            captured.update(kwargs)
+            return "hermes reply"
+
+        with (
+            patch("app.main.get_hermes_evidence_memory", return_value={"topics": []}),
+            patch("app.main.render_hermes_evidence_memory_context", return_value="hermes context"),
+            patch("app.main.generate_agent_reply", side_effect=fake_generate),
+        ):
+            result = agent_reply(AgentRequest(agent_id="hermes", message="test"), None)
+
+        self.assertEqual(result.reply, "hermes reply")
+        self.assertEqual(captured.get("memory_context"), "hermes context")
+
 
 if __name__ == "__main__":
     unittest.main()

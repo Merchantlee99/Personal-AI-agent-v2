@@ -22,7 +22,7 @@ flowchart LR
 ```
 
 ## 2) 입력 신호
-- `/health`(frontend/proxy/n8n) 상태
+- `/health`(proxy/n8n) 상태
 - `/api/runtime-metrics` (telegram success rate, pending approvals, deepl success rate)
 - Telegram webhook 상태(`getWebhookInfo`, pending/error)
 - 브리핑 도착 SLO(09:05 cut)

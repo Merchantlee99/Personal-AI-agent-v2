@@ -125,7 +125,7 @@ fi
 
 if [[ "${HERMES_DISPATCH_TO_MINERVA:-false}" == "true" ]]; then
   echo "[hermes-test] dispatch first briefing to minerva orchestration"
-  FRONTEND_PORT="${FRONTEND_PORT:-3000}" bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh /tmp/hermes_first.json
+  API_PORT="${API_PORT:-8001}" bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh /tmp/hermes_first.json
 fi
 
 echo "[hermes-test] PASS"

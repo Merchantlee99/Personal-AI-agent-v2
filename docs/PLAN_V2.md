@@ -47,7 +47,7 @@
 - 금지: 전략 최종결정, 문서 체계화 책임 침범
 
 ## 5) 아키텍처(유지 + 보완)
-- Frontend(Next.js) -> Next API(/api/chat) -> llm-proxy(FastAPI)
+- Telegram/n8n -> llm-proxy(FastAPI, `/api/chat`/`/api/orchestration/events`/`/api/telegram/webhook`)
 - llm-proxy: agent router, policy gate, conversation store, shared memory 처리
 - n8n: 수집/스케줄/분기(0건 skip, 중복 차단)
 - nanoclaw-agent: 파일 감시/큐 처리/문서 출력

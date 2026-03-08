@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "types": ["study", "article", "paper", "knowledge", "writing", "skill"],
+  "domains": [
+    {
+      "tag": "domain/pm",
+      "keywords": ["pm", "product", "product manager", "product management", "기획", "프로덕트", "로드맵", "우선순위", "stakeholder"]
+    },
+    {
+      "tag": "domain/ai",
+      "keywords": ["ai", "llm", "agent", "agentic", "인공지능", "모델", "prompt", "rag"]
+    },
+    {
+      "tag": "domain/sql",
+      "keywords": ["sql", "sqld", "query", "join", "database", "쿼리", "데이터베이스"]
+    },
+    {
+      "tag": "domain/data-analytics",
+      "keywords": ["ga4", "bigquery", "gtm", "analytics", "data", "funnel", "cohort", "분석", "측정"]
+    },
+    {
+      "tag": "domain/travel",
+      "keywords": ["travel", "trip", "journey", "여행", "관광", "일정", "장소"]
+    },
+    {
+      "tag": "domain/mobility",
+      "keywords": ["mobility", "robotaxi", "ev", "battery", "vehicle", "모빌리티", "로보택시", "배터리", "자율주행"]
+    },
+    {
+      "tag": "domain/research",
+      "keywords": ["paper", "research", "doi", "arxiv", "논문", "리서치", "학회", "저널"]
+    },
+    {
+      "tag": "domain/writing",
+      "keywords": ["writing", "draft", "blog", "linkedin", "threads", "글", "초안", "발행"]
+    },
+    {
+      "tag": "domain/knowledge-management",
+      "keywords": ["obsidian", "zettelkasten", "knowledge", "moc", "vault", "노트", "지식관리"]
+    }
+  ],
+  "sources": [
+    {"tag": "source/arxiv", "hosts": ["arxiv.org"]},
+    {"tag": "source/researchgate", "hosts": ["researchgate.net"]},
+    {"tag": "source/geeknews", "hosts": ["news.hada.io"]},
+    {"tag": "source/openai", "hosts": ["openai.com"]},
+    {"tag": "source/anthropic", "hosts": ["anthropic.com"]},
+    {"tag": "source/naver-d2", "hosts": ["d2.naver.com"]},
+    {"tag": "source/kakao", "hosts": ["tech.kakao.com"]},
+    {"tag": "source/toss", "hosts": ["toss.tech"]},
+    {"tag": "source/netflix", "hosts": ["netflixtechblog.com"]},
+    {"tag": "source/infoq", "hosts": ["infoq.com"]}
+  ]
+}

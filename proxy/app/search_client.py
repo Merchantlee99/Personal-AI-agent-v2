@@ -42,6 +42,16 @@ def _compact_text(value: str, *, limit: int) -> str:
     return collapsed[: max(0, limit - 1)].rstrip() + "…"
 
 
+def _allowed_tavily_hosts() -> set[str]:
+    raw = (os.getenv("TAVILY_API_ALLOWED_HOSTS") or "api.tavily.com").strip()
+    hosts = {
+        item.strip().lower()
+        for item in raw.split(",")
+        if item.strip()
+    }
+    return hosts or {"api.tavily.com"}
+
+
 def _strip_prompt_like(value: str, stats: dict[str, int]) -> str:
     text = value
     for pattern in PROMPT_LIKE_PATTERNS:
@@ -81,6 +91,43 @@ def _is_public_http_url(raw_url: str) -> bool:
         pass
 
     return True
+
+
+def _validate_tavily_api_base(raw_url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(raw_url.strip())
+    except ValueError as exc:
+        raise SearchProviderError("invalid tavily api base") from exc
+
+    if parsed.scheme != "https":
+        raise SearchProviderError("tavily api base must use https")
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        raise SearchProviderError("tavily api base missing host")
+
+    if hostname == "localhost" or hostname.endswith(".local"):
+        raise SearchProviderError("tavily api base host is not allowed")
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise SearchProviderError("tavily api base host is not allowed")
+    except ValueError:
+        pass
+
+    allowed_hosts = _allowed_tavily_hosts()
+    if hostname not in allowed_hosts:
+        raise SearchProviderError(f"tavily api base host not allowlisted: {hostname}")
+
+    return raw_url.strip().rstrip("/")
 
 
 def _sanitize_results(raw_results: list[dict[str, object]], max_results: int) -> tuple[list[SearchResult], dict[str, int]]:
@@ -150,7 +197,7 @@ def _fetch_tavily_raw(*, query: str, max_results: int) -> list[dict[str, object]
     if not api_key:
         raise SearchProviderError("TAVILY_API_KEY is missing")
 
-    api_base = os.getenv("TAVILY_API_BASE", "https://api.tavily.com").strip().rstrip("/")
+    api_base = _validate_tavily_api_base(os.getenv("TAVILY_API_BASE", "https://api.tavily.com"))
     endpoint = f"{api_base}/search"
     timeout_sec = max(1.0, _env_float("SEARCH_TIMEOUT_SEC", 8.0))
     search_depth = os.getenv("TAVILY_SEARCH_DEPTH", "basic").strip() or "basic"

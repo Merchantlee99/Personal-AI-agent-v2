@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 REBUILD_AGENT="${CLIO_E2E_REBUILD_AGENT:-false}"
 
@@ -32,9 +33,24 @@ PY
 echo "[clio-e2e] ensure nanoclaw-agent is running"
 if [[ "$REBUILD_AGENT" == "true" ]]; then
   echo "[clio-e2e] rebuilding nanoclaw-agent image"
-  docker compose build nanoclaw-agent >/dev/null
+  compose_cmd build nanoclaw-agent >/dev/null
 fi
-docker compose up -d nanoclaw-agent >/dev/null
+compose_cmd up -d nanoclaw-agent >/dev/null
+
+echo "[clio-e2e] wait for llm-proxy health"
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  HEALTH_STATUS="$(curl -sS -o /tmp/clio_e2e_health.json -w '%{http_code}' "${BASE_URL}/health" || true)"
+  if [[ "$HEALTH_STATUS" == "200" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${HEALTH_STATUS:-000}" != "200" ]]; then
+  echo "[clio-e2e] llm-proxy healthcheck failed status=${HEALTH_STATUS:-000}" >&2
+  cat /tmp/clio_e2e_health.json >&2 || true
+  exit 1
+fi
 
 BEFORE_COUNT="$(count_verified_files)"
 echo "[clio-e2e] verified_inbox before=${BEFORE_COUNT}"
@@ -110,8 +126,18 @@ from pathlib import Path
 target = Path(sys.argv[1])
 payload = json.loads(target.read_text(encoding="utf-8"))
 assert payload.get("agent_id") == "clio", "verified payload agent_id is not clio"
+assert payload.get("format_version") == "clio_obsidian_v2", "format_version mismatch"
+assert payload.get("type") in {"study", "article", "paper", "knowledge", "writing", "skill"}, "invalid note type"
+assert isinstance(payload.get("folder"), str) and payload["folder"], "folder missing"
+assert isinstance(payload.get("template_name"), str) and payload["template_name"].startswith("tpl-"), "template_name missing"
+assert payload.get("draft_state") == "draft", "draft_state mismatch"
+assert isinstance(payload.get("classification_confidence"), (int, float)), "classification_confidence missing"
 assert isinstance(payload.get("tags"), list) and payload["tags"], "tags missing"
+assert isinstance(payload.get("project_links"), list), "project_links missing"
+assert isinstance(payload.get("moc_candidates"), list), "moc_candidates missing"
+assert isinstance(payload.get("related_notes"), list), "related_notes missing"
 assert isinstance(payload.get("source_urls"), list), "source_urls missing"
+assert isinstance(payload.get("frontmatter"), dict), "frontmatter missing"
 assert "deepl" in payload, "deepl block missing"
 assert "notebooklm" in payload and payload["notebooklm"].get("ready") is True, "notebooklm ready missing"
 print("[clio-e2e] verified payload schema validated")

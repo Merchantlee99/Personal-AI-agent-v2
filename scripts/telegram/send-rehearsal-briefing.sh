@@ -10,8 +10,8 @@ if [[ -f "${REPO_ROOT}/.env.local" ]]; then
   set +a
 fi
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 if [[ -z "$CHAT_ID" ]]; then

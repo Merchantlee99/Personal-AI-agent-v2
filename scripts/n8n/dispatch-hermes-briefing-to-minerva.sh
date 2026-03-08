@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 SOURCE_JSON="${1:-/tmp/hermes_first.json}"
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-ORCH_URL="${ORCH_URL:-http://127.0.0.1:${FRONTEND_PORT}/api/orchestration/events}"
+API_PORT="${API_PORT:-8001}"
+ORCH_URL="${ORCH_URL:-http://127.0.0.1:${API_PORT}/api/orchestration/events}"
 
 if [[ ! -f "$SOURCE_JSON" ]]; then
   echo "[dispatch-hermes] source json not found: $SOURCE_JSON" >&2

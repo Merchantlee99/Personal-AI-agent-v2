@@ -3,25 +3,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
-FRONTEND_PORT="${FRONTEND_PORT:-3032}"
-NEXT_LOG="/tmp/nanoclaw_next_smoke_${FRONTEND_PORT}.log"
+API_PORT="${API_PORT:-8001}"
 SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
-
-cleanup() {
-  if [[ -n "${NEXT_PID:-}" ]]; then
-    kill "$NEXT_PID" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
 
 wait_for_container_health() {
   local container="$1"
   local retries="${2:-20}"
   local sleep_sec="${3:-1}"
 
-  for i in $(seq 1 "$retries"); do
+  for _ in $(seq 1 "$retries"); do
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
     if [[ "$status" == "healthy" || "$status" == "running" ]]; then
       return 0
@@ -30,7 +23,7 @@ wait_for_container_health() {
   done
 
   echo "[smoke] $container is not ready (status=$status)" >&2
-  docker compose logs --tail=40 >/tmp/nanoclaw_smoke_container_logs.txt 2>&1 || true
+  compose_cmd logs --tail=40 >/tmp/nanoclaw_smoke_container_logs.txt 2>&1 || true
   cat /tmp/nanoclaw_smoke_container_logs.txt >&2 || true
   return 1
 }
@@ -43,7 +36,7 @@ post_chat_expect_200() {
   for i in 1 2 3 4 5; do
     status="$(
       curl -sS -o "$output_file" -w '%{http_code}' \
-        -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
+        -X POST "http://127.0.0.1:${API_PORT}/api/chat" \
         -H 'content-type: application/json' \
         -d "$body" || true
     )"
@@ -69,63 +62,26 @@ post_chat_expect_200() {
 echo "[smoke] agent config check"
 bash scripts/verify/validate-agent-config.sh
 
-echo "[smoke] ui structure check"
-bash scripts/verify/check-ui-structure.sh
-
-echo "[smoke] ui inline style budget check"
-bash scripts/verify/check-inline-style-budget.sh
-
 echo "[smoke] ensure shared_data writable"
 mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
 chmod -R a+rwX shared_data || true
 
-echo "[smoke] docker services up"
-docker compose up -d llm-proxy nanoclaw-agent n8n >/dev/null
+echo "[smoke] docker services up (telegram-only runtime)"
+compose_cmd up -d llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
 
 echo "[smoke] wait containers ready"
-wait_for_container_health nanoclaw-llm-proxy 20 1
+wait_for_container_health nanoclaw-llm-proxy 30 1
 wait_for_container_health nanoclaw-n8n 30 1
 wait_for_container_health nanoclaw-agent 20 1
+wait_for_container_health nanoclaw-telegram-poller 20 1
 
 echo "[smoke] llm-proxy health"
-health_ready=0
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -fsS http://127.0.0.1:8001/health >/tmp/nanoclaw_smoke_health.json; then
-    health_ready=1
-    break
-  fi
-  sleep 1
-done
-
-if [[ "$health_ready" != "1" ]]; then
-  echo "[smoke] llm-proxy health check failed after retries" >&2
-  exit 1
-fi
+curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
 cat /tmp/nanoclaw_smoke_health.json
 
 echo "[smoke] n8n bootstrap"
 bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
 cat /tmp/nanoclaw_smoke_bootstrap.log
-
-echo "[smoke] start next dev on :$FRONTEND_PORT"
-npm run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" >"$NEXT_LOG" 2>&1 &
-NEXT_PID=$!
-
-ready=0
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  code="$(curl -s -o /tmp/nanoclaw_smoke_home.html -w '%{http_code}' "http://127.0.0.1:${FRONTEND_PORT}/" || true)"
-  if [[ "$code" == "200" || "$code" == "404" ]]; then
-    ready=1
-    break
-  fi
-  sleep 1
-done
-
-if [[ "$ready" != "1" ]]; then
-  echo "[smoke] next dev did not become ready" >&2
-  tail -n 50 "$NEXT_LOG" >&2 || true
-  exit 1
-fi
 
 echo "[smoke] /api/chat canonical check"
 post_chat_expect_200 \
@@ -136,7 +92,7 @@ post_chat_expect_200 \
 echo "[smoke] /api/chat legacy alias rejection check"
 alias_status="$(
   curl -s -o /tmp/nanoclaw_smoke_chat_alias_reject.json -w '%{http_code}' \
-    -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
+    -X POST "http://127.0.0.1:${API_PORT}/api/chat" \
     -H 'content-type: application/json' \
     -d '{"agentId":"ace","message":"smoke-legacy-alias"}' || true
 )"
@@ -164,7 +120,7 @@ cat > "shared_data/inbox/$INBOX_FILE" <<JSON
 JSON
 
 processed=0
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
     processed=1
     break

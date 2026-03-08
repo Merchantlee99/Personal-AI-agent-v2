@@ -3,19 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
+source scripts/runtime/load-env.sh
 
 ENV_FILE="${ENV_FILE:-.env.local}"
-
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "[security-orch] env file missing: $ENV_FILE" >&2
-  exit 1
-fi
+load_runtime_env "$ENV_FILE"
 
 get_env() {
   local key="$1"
-  local value
-  value="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
-  printf '%s' "$value"
+  runtime_env_get "$key"
 }
 
 normalize_bool() {
@@ -46,6 +42,7 @@ echo "[security-orch] checking orchestration/security baseline in ${ENV_FILE}"
 
 GCAL_ENABLED="$(normalize_bool "$(get_env GOOGLE_CALENDAR_ENABLED)")"
 GCAL_SCOPE="$(get_env GOOGLE_CALENDAR_OAUTH_SCOPES)"
+GCAL_REDIRECT_URI="$(get_env GOOGLE_CALENDAR_OAUTH_REDIRECT_URI)"
 if [[ "$GCAL_ENABLED" == "true" ]]; then
   require_non_empty GOOGLE_CALENDAR_OAUTH_CLIENT_ID
   require_non_empty GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
@@ -54,6 +51,12 @@ if [[ "$GCAL_ENABLED" == "true" ]]; then
     FAIL=1
   else
     echo "[security-orch] OK GOOGLE_CALENDAR_OAUTH_SCOPES is readonly"
+  fi
+  if [[ "$GCAL_REDIRECT_URI" != "http://127.0.0.1:8001/api/integrations/google-calendar/oauth/callback" ]]; then
+    echo "[security-orch] FAIL GOOGLE_CALENDAR_OAUTH_REDIRECT_URI must target llm-proxy callback (:8001)" >&2
+    FAIL=1
+  else
+    echo "[security-orch] OK GOOGLE_CALENDAR_OAUTH_REDIRECT_URI targets llm-proxy"
   fi
 else
   echo "[security-orch] WARN GOOGLE_CALENDAR_ENABLED is not true"
@@ -96,6 +99,13 @@ if [[ "$SEARCH_PROVIDER" == "tavily" ]]; then
   require_non_empty TAVILY_API_KEY
 fi
 
+TAVILY_ALLOWED_HOSTS="$(get_env TAVILY_API_ALLOWED_HOSTS)"
+if [[ -z "$TAVILY_ALLOWED_HOSTS" ]]; then
+  echo "[security-orch] WARN TAVILY_API_ALLOWED_HOSTS is empty (default api.tavily.com will be used at runtime)"
+else
+  echo "[security-orch] OK TAVILY_API_ALLOWED_HOSTS=${TAVILY_ALLOWED_HOSTS}"
+fi
+
 HERMES_SEARCH_PROVIDER="$(printf '%s' "$(get_env HERMES_SEARCH_PROVIDER)" | tr '[:upper:]' '[:lower:]' | xargs)"
 if [[ -z "$HERMES_SEARCH_PROVIDER" ]]; then
   HERMES_SEARCH_PROVIDER="auto"
@@ -120,16 +130,16 @@ checks = [
         "file": Path("n8n/workflows/hermes-daily-briefing.json"),
         "nodes": [
             ("Normalize Input", ("INJECTION_PATTERNS", "isSafeUrl")),
-            ("Collect P0 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY")),
-            ("Collect P1 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY")),
-            ("Collect P2 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY")),
+            ("Collect P0 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
+            ("Collect P1 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
+            ("Collect P2 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
         ],
     },
     {
         "file": Path("n8n/workflows/hermes-web-search-tavily.json"),
         "nodes": [
             ("Normalize Search Input", ("INJECTION_PATTERNS",)),
-            ("Fetch Search Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY")),
+            ("Fetch Search Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
         ],
     },
 ]
@@ -164,8 +174,7 @@ else
   echo "[security-orch] WARN NOTEBOOKLM_SYNC_ENABLED is not true"
 fi
 
-TELEGRAM_TOKEN="$(get_env TELEGRAM_BOT_TOKEN)"
-if [[ -n "$TELEGRAM_TOKEN" ]]; then
+if runtime_env_has_value TELEGRAM_BOT_TOKEN; then
   require_non_empty TELEGRAM_WEBHOOK_SECRET
   require_non_empty TELEGRAM_ALLOWED_USER_IDS
   require_non_empty TELEGRAM_ALLOWED_CHAT_IDS
@@ -203,11 +212,62 @@ else
   echo "[security-orch] WARN TELEGRAM_BOT_TOKEN is empty; telegram hardening checks skipped"
 fi
 
-if docker compose ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
+container_env_is_set() {
+  local container="$1"
+  local key="$2"
+  local value
+  value="$(docker exec "$container" sh -lc "printenv '$key' 2>/dev/null || true" 2>/dev/null || true)"
+  [[ -n "$value" ]]
+}
+
+assert_container_env_present() {
+  local container="$1"
+  local key="$2"
+  if container_env_is_set "$container" "$key"; then
+    echo "[security-orch] OK ${container} has ${key}"
+  else
+    echo "[security-orch] FAIL ${container} missing ${key}" >&2
+    FAIL=1
+  fi
+}
+
+assert_container_env_empty() {
+  local container="$1"
+  local key="$2"
+  if container_env_is_set "$container" "$key"; then
+    echo "[security-orch] FAIL ${container} should not carry ${key}" >&2
+    FAIL=1
+  else
+    echo "[security-orch] OK ${container} does not carry ${key}"
+  fi
+}
+
+if compose_cmd ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
   if grep -q "nanoclaw-agent" /tmp/security_orch_compose_ps.txt; then
     docker inspect nanoclaw-agent --format '[security-orch] agent read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
     docker inspect nanoclaw-llm-proxy --format '[security-orch] proxy read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
     docker inspect nanoclaw-n8n --format '[security-orch] n8n read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
+    docker inspect nanoclaw-telegram-poller --format '[security-orch] poller read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
+
+    echo "[security-orch] checking service-specific secret minimization"
+    assert_container_env_present nanoclaw-llm-proxy INTERNAL_API_TOKEN
+    assert_container_env_present nanoclaw-llm-proxy TELEGRAM_BOT_TOKEN
+    assert_container_env_empty nanoclaw-llm-proxy N8N_BASIC_AUTH_PASSWORD
+
+    assert_container_env_present nanoclaw-telegram-poller TELEGRAM_BOT_TOKEN
+    assert_container_env_empty nanoclaw-telegram-poller ANTHROPIC_API_KEY
+    assert_container_env_empty nanoclaw-telegram-poller GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
+    assert_container_env_empty nanoclaw-telegram-poller TAVILY_API_KEY
+
+    assert_container_env_empty nanoclaw-agent TELEGRAM_BOT_TOKEN
+    assert_container_env_empty nanoclaw-agent ANTHROPIC_API_KEY
+    assert_container_env_empty nanoclaw-agent TAVILY_API_KEY
+
+    assert_container_env_present nanoclaw-n8n ORCHESTRATION_EVENT_URL
+    assert_container_env_present nanoclaw-n8n TAVILY_API_KEY
+    assert_container_env_empty nanoclaw-n8n TELEGRAM_BOT_TOKEN
+    assert_container_env_empty nanoclaw-n8n GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
+    assert_container_env_empty nanoclaw-n8n ANTHROPIC_API_KEY
   fi
 fi
 
