@@ -643,6 +643,178 @@ def confirm_clio_claim_review(review_id: str, actor_user_id: str) -> dict[str, A
     return None
 
 
+def _make_clio_note_suggestion_id(vault_file: str) -> str:
+    return hashlib.sha256(str(vault_file).encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_clio_note_suggestion(item: dict[str, Any]) -> dict[str, Any] | None:
+    title = _sanitize_text(item.get("title"), 180)
+    note_action = _sanitize_text(item.get("noteAction"), 40)
+    vault_file = _sanitize_text(item.get("vaultFile"), 260)
+    if not title or not vault_file or note_action not in {"update_candidate", "merge_candidate"}:
+        return None
+    return {
+        "id": _make_clio_note_suggestion_id(vault_file),
+        "title": title,
+        "type": _sanitize_text(item.get("type"), 32),
+        "vaultFile": vault_file,
+        "draftState": _sanitize_text(item.get("draftState"), 32) or "draft",
+        "noteAction": note_action,
+        "updateTarget": _sanitize_text(item.get("updateTarget"), 160),
+        "updateTargetPath": _sanitize_text(item.get("updateTargetPath"), 260),
+        "mergeCandidates": _normalize_string_list(item.get("mergeCandidates"), limit=6, item_limit=120),
+        "mergeCandidatePaths": _normalize_string_list(item.get("mergeCandidatePaths"), limit=6, item_limit=260),
+        "projectLinks": _normalize_string_list(item.get("projectLinks"), limit=6, item_limit=120),
+        "mocCandidates": _normalize_string_list(item.get("mocCandidates"), limit=6, item_limit=120),
+        "suggestionState": _sanitize_text(item.get("suggestionState"), 32) or "pending",
+        "updatedAt": _sanitize_text(item.get("updatedAt"), 64),
+    }
+
+
+def list_pending_clio_note_suggestions(limit: int = 8) -> list[dict[str, Any]]:
+    memory = get_clio_knowledge_memory()
+    suggestions: list[dict[str, Any]] = []
+    for item in memory.get("recentNotes", []):
+        if not isinstance(item, dict):
+            continue
+        suggestion = _normalize_clio_note_suggestion(item)
+        if not suggestion:
+            continue
+        if suggestion.get("suggestionState") not in {"", "pending"}:
+            continue
+        suggestions.append(suggestion)
+        if len(suggestions) >= max(1, limit):
+            break
+    return suggestions
+
+
+def get_clio_note_suggestion(suggestion_id: str) -> dict[str, Any] | None:
+    for suggestion in list_pending_clio_note_suggestions(limit=200):
+        if str(suggestion.get("id")) == suggestion_id:
+            return suggestion
+    return None
+
+
+def _update_clio_note_suggestion_state(suggestion_id: str, *, suggestion_state: str, draft_state: str | None = None) -> dict[str, Any] | None:
+    memory = get_clio_knowledge_memory()
+    changed = False
+    updated_note: dict[str, Any] | None = None
+    for item in memory.get("recentNotes", []):
+        if not isinstance(item, dict):
+            continue
+        vault_file = _sanitize_text(item.get("vaultFile"), 260)
+        if _make_clio_note_suggestion_id(vault_file) != suggestion_id:
+            continue
+        item["suggestionState"] = suggestion_state
+        if draft_state:
+            item["draftState"] = draft_state
+        item["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        updated_note = dict(item)
+        changed = True
+        break
+    if not changed:
+        return None
+    memory["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _write_json_file(CLIO_KNOWLEDGE_MEMORY_FILE, memory)
+    return updated_note
+
+
+def _append_note_annotation(note_path: Path, marker: str, heading: str, lines: list[str]) -> bool:
+    if not note_path.is_file():
+        return False
+    markdown = note_path.read_text(encoding="utf-8")
+    if marker in markdown:
+        return True
+    block = "\n".join(["", heading, marker, *lines]).rstrip() + "\n"
+    note_path.write_text(markdown.rstrip() + "\n" + block, encoding="utf-8")
+    return True
+
+
+def apply_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[str, Any] | None:
+    suggestion = get_clio_note_suggestion(suggestion_id)
+    if not suggestion:
+        return None
+    draft_path = _safe_shared_path(str(suggestion.get("vaultFile") or ""))
+    if not draft_path or not draft_path.is_file():
+        return None
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat().replace("+00:00", "Z")
+    draft_stem = draft_path.stem
+    marker = f"<!-- clio-suggestion:{suggestion_id} -->"
+    applied_paths: list[str] = []
+
+    if suggestion.get("noteAction") == "update_candidate":
+        target_path = _safe_shared_path(str(suggestion.get("updateTargetPath") or ""))
+        if not target_path:
+            return None
+        ok = _append_note_annotation(
+            target_path,
+            marker,
+            "## Clio Suggested Update",
+            [
+                f"- approved_at: {now_iso}",
+                f"- approved_by: {actor_user_id}",
+                f"- source_draft: [[{draft_stem}]]",
+                f"- suggestion_type: update_candidate",
+            ],
+        )
+        if not ok:
+            return None
+        applied_paths.append(str(target_path))
+    else:
+        candidate_paths = []
+        for raw in suggestion.get("mergeCandidatePaths") or []:
+            candidate_path = _safe_shared_path(str(raw))
+            if candidate_path and candidate_path.is_file():
+                candidate_paths.append(candidate_path)
+        if not candidate_paths:
+            return None
+        for candidate_path in candidate_paths[:3]:
+            ok = _append_note_annotation(
+                candidate_path,
+                marker,
+                "## Clio Related Draft",
+                [
+                    f"- approved_at: {now_iso}",
+                    f"- approved_by: {actor_user_id}",
+                    f"- linked_draft: [[{draft_stem}]]",
+                    f"- suggestion_type: merge_candidate",
+                ],
+            )
+            if ok:
+                applied_paths.append(str(candidate_path))
+        _append_note_annotation(
+            draft_path,
+            marker,
+            "## Clio Approved Merge Links",
+            [f"- candidate: {item}" for item in suggestion.get("mergeCandidates", [])[:3]] or ["- candidate: 없음"],
+        )
+
+    _apply_clio_note_draft_state(str(suggestion.get("vaultFile") or ""), "review")
+    _update_clio_note_suggestion_state(suggestion_id, suggestion_state="approved", draft_state="review")
+    return {
+        **suggestion,
+        "appliedAt": now_iso,
+        "appliedByUserId": actor_user_id,
+        "appliedPaths": applied_paths,
+    }
+
+
+def dismiss_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[str, Any] | None:
+    suggestion = get_clio_note_suggestion(suggestion_id)
+    if not suggestion:
+        return None
+    updated = _update_clio_note_suggestion_state(suggestion_id, suggestion_state="dismissed")
+    if not updated:
+        return None
+    return {
+        **suggestion,
+        "dismissedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "dismissedByUserId": actor_user_id,
+    }
+
+
 def get_telegram_chat_history(chat_id: str, limit: int = 12) -> list[dict[str, str]]:
     payload = _read_json_file(TELEGRAM_CHAT_HISTORY_FILE, {})
     if not isinstance(payload, dict):
@@ -1011,7 +1183,10 @@ def normalize_clio_knowledge_memory(payload: dict[str, Any] | None) -> dict[str,
                 "claimReviewId": _sanitize_text(item.get("claimReviewId"), 32),
                 "noteAction": _sanitize_text(item.get("noteAction"), 40),
                 "updateTarget": _sanitize_text(item.get("updateTarget"), 160),
+                "updateTargetPath": _sanitize_text(item.get("updateTargetPath"), 260),
                 "mergeCandidates": _normalize_string_list(item.get("mergeCandidates"), limit=6, item_limit=120),
+                "mergeCandidatePaths": _normalize_string_list(item.get("mergeCandidatePaths"), limit=6, item_limit=260),
+                "suggestionState": _sanitize_text(item.get("suggestionState"), 32),
                 "updatedAt": _sanitize_text(item.get("updatedAt"), 64),
             }
         )
@@ -1068,7 +1243,10 @@ def render_clio_knowledge_memory_context(memory: dict[str, Any] | None = None, *
             note_type = _sanitize_text(item.get("type"), 24)
             draft_state = _sanitize_text(item.get("draftState"), 24)
             note_action = _sanitize_text(item.get("noteAction"), 32)
+            suggestion_state = _sanitize_text(item.get("suggestionState"), 24)
             suffix = f" action={note_action}" if note_action else ""
+            if suggestion_state:
+                suffix += f" suggestion={suggestion_state}"
             lines.append(f"  - {title} [{note_type}] state={draft_state or 'draft'}{suffix}")
     dedupe_candidates = data.get("dedupeCandidates") if isinstance(data.get("dedupeCandidates"), list) else []
     if dedupe_candidates:

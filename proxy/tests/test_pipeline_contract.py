@@ -69,7 +69,9 @@ class PipelineContractTests(unittest.TestCase):
                 "draft_state": "draft",
                 "note_action": "merge_candidate",
                 "update_target": "",
+                "update_target_path": "",
                 "merge_candidates": ["[[Memory]]", "[[Memory]]"],
+                "merge_candidate_paths": ["obsidian_vault/01-Knowledge/Memory.md", "obsidian_vault/01-Knowledge/Memory.md"],
                 "classification_confidence": 0.81,
                 "frontmatter": {"title": "Agent memory note", "type": "knowledge"},
                 "verified": True,
@@ -84,6 +86,7 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(artifact.draftState, "draft")
         self.assertEqual(artifact.noteAction, "merge_candidate")
         self.assertEqual(artifact.mergeCandidates, ["[[Memory]]"])
+        self.assertEqual(artifact.mergeCandidatePaths, ["obsidian_vault/01-Knowledge/Memory.md"])
 
     def test_summary_block_rejects_inverted_window(self) -> None:
         with self.assertRaises(ValidationError):

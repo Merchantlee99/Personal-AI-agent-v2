@@ -107,6 +107,113 @@ class ClioClaimReviewTests(unittest.TestCase):
             body = note_path.read_text(encoding="utf-8")
             self.assertIn('draft_state: "confirmed"', body)
 
+    def test_apply_clio_note_suggestion_updates_target_note_and_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory_dir = root / "shared_memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+
+            draft_file = "obsidian_vault/01-Knowledge/새 PM 루프 노트.md"
+            draft_path = root / draft_file
+            draft_path.parent.mkdir(parents=True, exist_ok=True)
+            draft_path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        'title: "새 PM 루프 노트"',
+                        'type: "knowledge"',
+                        'draft_state: "draft"',
+                        'updated: "2026-03-08"',
+                        "---",
+                        "",
+                        "## 핵심 주장",
+                        "측정과 회고는 하나의 루프로 관리해야 한다.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            target_file = "obsidian_vault/01-Knowledge/PM 학습 루프.md"
+            target_path = root / target_file
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        'title: "PM 학습 루프"',
+                        'type: "knowledge"',
+                        'draft_state: "confirmed"',
+                        'updated: "2026-03-08"',
+                        "---",
+                        "",
+                        "## 핵심 주장",
+                        "기존 노트",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            (memory_dir / "clio_knowledge_memory.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "updatedAt": "2026-03-08T00:00:00Z",
+                        "recentNotes": [
+                            {
+                                "title": "새 PM 루프 노트",
+                                "type": "knowledge",
+                                "folder": "01-Knowledge",
+                                "templateName": "tpl-knowledge.md",
+                                "vaultFile": draft_file,
+                                "tags": ["type/knowledge", "domain/pm"],
+                                "projectLinks": ["[[TripPixel]]"],
+                                "mocCandidates": ["[[PM 스킬 맵]]"],
+                                "relatedNotes": ["[[PM 학습 루프]]"],
+                                "draftState": "draft",
+                                "claimReviewRequired": False,
+                                "claimReviewId": "",
+                                "noteAction": "update_candidate",
+                                "updateTarget": "[[PM 학습 루프]]",
+                                "updateTargetPath": target_file,
+                                "mergeCandidates": [],
+                                "mergeCandidatePaths": [],
+                                "suggestionState": "pending",
+                                "updatedAt": "2026-03-08T00:00:00Z",
+                            }
+                        ],
+                        "dedupeCandidates": [],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(orch_store, "ROOT", root),
+                patch.object(orch_store, "MEMORY_DIR", memory_dir),
+                patch.object(orch_store, "CLIO_KNOWLEDGE_MEMORY_FILE", memory_dir / "clio_knowledge_memory.json"),
+            ):
+                suggestion_id = orch_store._make_clio_note_suggestion_id(draft_file)
+                applied = orch_store.apply_clio_note_suggestion(suggestion_id, "8241238117")
+
+            self.assertIsNotNone(applied)
+            self.assertEqual(applied["appliedByUserId"], "8241238117")
+            self.assertEqual(applied["noteAction"], "update_candidate")
+            self.assertEqual(applied["appliedPaths"], [str(target_path)])
+
+            updated_target = target_path.read_text(encoding="utf-8")
+            self.assertIn("## Clio Suggested Update", updated_target)
+            self.assertIn(f"<!-- clio-suggestion:{suggestion_id} -->", updated_target)
+            self.assertIn("- source_draft: [[새 PM 루프 노트]]", updated_target)
+
+            updated_draft = draft_path.read_text(encoding="utf-8")
+            self.assertIn('draft_state: "review"', updated_draft)
+
+            memory = json.loads((memory_dir / "clio_knowledge_memory.json").read_text(encoding="utf-8"))
+            self.assertEqual(memory["recentNotes"][0]["draftState"], "review")
+            self.assertEqual(memory["recentNotes"][0]["suggestionState"], "approved")
+
 
 if __name__ == "__main__":
     unittest.main()

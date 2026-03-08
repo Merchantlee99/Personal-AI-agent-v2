@@ -81,7 +81,7 @@ echo "[bootstrap] ensuring n8n service is running"
 compose_cmd up -d n8n >/dev/null
 
 if ! compose_cmd ps -a | grep -E "nanoclaw-n8n\s" | grep -q "Up"; then
-  echo "[bootstrap] n8n is not running. check 'docker compose --env-file .env.local logs n8n'" >&2
+  echo "[bootstrap] n8n is not running. check 'bash scripts/runtime/compose.sh logs n8n'" >&2
   exit 1
 fi
 wait_for_n8n_cli

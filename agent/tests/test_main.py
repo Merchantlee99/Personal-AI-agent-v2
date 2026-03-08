@@ -59,7 +59,9 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(outbox_payload["draft_state"], "draft")
             self.assertEqual(outbox_payload["note_action"], "create")
             self.assertIsNone(outbox_payload["update_target"])
+            self.assertIsNone(outbox_payload["update_target_path"])
             self.assertEqual(outbox_payload["merge_candidates"], [])
+            self.assertEqual(outbox_payload["merge_candidate_paths"], [])
             self.assertGreaterEqual(outbox_payload["classification_confidence"], 0.55)
             self.assertIn("type/article", outbox_payload["tags"])
             self.assertIn("source/example", outbox_payload["tags"])
@@ -97,7 +99,9 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(verified_payload["draft_state"], "draft")
             self.assertEqual(verified_payload["note_action"], "create")
             self.assertIsNone(verified_payload["update_target"])
+            self.assertIsNone(verified_payload["update_target_path"])
             self.assertEqual(verified_payload["merge_candidates"], [])
+            self.assertEqual(verified_payload["merge_candidate_paths"], [])
             self.assertIn("type/article", verified_payload["tags"])
             self.assertIn("[[trend-ai-overview]]", verified_payload["related_notes"])
             self.assertIn("clio_format_version", verified_payload["frontmatter"])
@@ -292,7 +296,9 @@ class AgentPipelineTests(unittest.TestCase):
             outbox_payload = json.loads(next(outbox.glob("*.json")).read_text(encoding="utf-8"))
             self.assertEqual(outbox_payload["note_action"], "update_candidate")
             self.assertEqual(outbox_payload["update_target"], "[[PM 학습 루프]]")
+            self.assertEqual(outbox_payload["update_target_path"], "obsidian_vault/01-Knowledge/PM 학습 루프.md")
             self.assertEqual(outbox_payload["merge_candidates"], [])
+            self.assertEqual(outbox_payload["merge_candidate_paths"], [])
 
 
 if __name__ == "__main__":

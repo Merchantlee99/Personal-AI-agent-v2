@@ -111,11 +111,22 @@ def create_clio_claim_review_keyboard(review_id: str) -> dict[str, Any]:
     }
 
 
+def create_clio_note_suggestion_keyboard(suggestion_id: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [{"text": "Clio 제안 적용 승인 요청", "callback_data": f"clio_apply_suggestion:{suggestion_id}"}],
+            [{"text": "이 제안 보류", "callback_data": f"clio_dismiss_suggestion:{suggestion_id}"}],
+        ]
+    }
+
+
 def approval_action_label(action: str) -> str:
     if action == "clio_save":
         return "Clio 저장"
     if action == "clio_confirm_knowledge":
         return "Clio 지식 노트 승인"
+    if action == "clio_apply_suggestion":
+        return "Clio 노트 제안 적용"
     if action == "hermes_deep_dive":
         return "Hermes 추가 수집"
     return "Minerva 인사이트 분석"
@@ -202,6 +213,32 @@ def render_clio_claim_review_text(review: dict[str, Any], *, pending_count: int)
         ),
         1400,
     )
+
+
+def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_count: int) -> str:
+    action = clean_line(str(suggestion.get("noteAction") or "create"))
+    target = clean_line(str(suggestion.get("updateTarget") or ""))
+    merge_candidates = suggestion.get("mergeCandidates") if isinstance(suggestion.get("mergeCandidates"), list) else []
+    lines = [
+        "🧩 Clio note suggestion",
+        "",
+        f"- 제목: {short_text(str(suggestion.get('title', '')), 72)}",
+        f"- 제안 유형: {action}",
+        f"- 노트 경로: {short_text(str(suggestion.get('vaultFile', '')), 88)}",
+    ]
+    if target:
+        lines.append(f"- 업데이트 대상: {short_text(target, 88)}")
+    elif merge_candidates:
+        lines.append(f"- 병합 후보: {', '.join(merge_candidates[:3])}")
+    else:
+        lines.append("- 병합 후보: 없음")
+    lines.extend(
+        [
+            f"- 대기 건수: {pending_count}",
+            "- 승인 시 기존 노트에는 안전한 링크/주석만 추가하고, draft note는 review 상태로 전환됩니다.",
+        ]
+    )
+    return trim_telegram_text("\n".join(lines), 1400)
 
 
 def summary_lines(value: str, max_lines: int) -> list[str]:

@@ -208,11 +208,23 @@ class NoteDraftArtifact(PipelineModel):
         validation_alias=AliasChoices("updateTarget", "update_target"),
         serialization_alias="update_target",
     )
+    updateTargetPath: str | None = Field(
+        default=None,
+        max_length=260,
+        validation_alias=AliasChoices("updateTargetPath", "update_target_path"),
+        serialization_alias="update_target_path",
+    )
     mergeCandidates: list[str] = Field(
         default_factory=list,
         max_length=8,
         validation_alias=AliasChoices("mergeCandidates", "merge_candidates"),
         serialization_alias="merge_candidates",
+    )
+    mergeCandidatePaths: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        validation_alias=AliasChoices("mergeCandidatePaths", "merge_candidate_paths"),
+        serialization_alias="merge_candidate_paths",
     )
     classificationConfidence: float = Field(
         ge=0,
@@ -229,7 +241,7 @@ class NoteDraftArtifact(PipelineModel):
         serialization_alias="vault_path",
     )
 
-    @field_validator("topicKey", "title", "folder", "templateName", "vaultPath", "updateTarget", mode="before")
+    @field_validator("topicKey", "title", "folder", "templateName", "vaultPath", "updateTarget", "updateTargetPath", mode="before")
     @classmethod
     def compact_note_text_fields(cls, value: Any) -> Any:
         compact = _compact_text(value)
@@ -240,7 +252,7 @@ class NoteDraftArtifact(PipelineModel):
     def normalize_note_tags(cls, value: Any) -> Any:
         return _normalize_string_list(value, lowercase=True)
 
-    @field_validator("projectLinks", "mocCandidates", "relatedNotes", "mergeCandidates", mode="before")
+    @field_validator("projectLinks", "mocCandidates", "relatedNotes", "mergeCandidates", "mergeCandidatePaths", mode="before")
     @classmethod
     def normalize_note_links(cls, value: Any) -> Any:
         return _normalize_string_list(value, lowercase=False)

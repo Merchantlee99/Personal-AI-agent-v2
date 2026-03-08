@@ -49,6 +49,8 @@ class ClioPipelineResult:
     note_action: str
     update_target: str | None
     merge_candidates: list[str]
+    update_target_path: str | None
+    merge_candidate_paths: list[str]
 
 
 CLIO_OBSIDIAN_FORMAT_VERSION = "clio_obsidian_v2"
@@ -295,7 +297,10 @@ def _update_clio_knowledge_memory(
         "claimReviewId": claim_review_id,
         "noteAction": clio.note_action,
         "updateTarget": clio.update_target,
+        "updateTargetPath": clio.update_target_path,
         "mergeCandidates": clio.merge_candidates[:3],
+        "mergeCandidatePaths": clio.merge_candidate_paths[:3],
+        "suggestionState": "pending" if clio.note_action != "create" else "",
         "updatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
     recent_notes.append(note_entry)
@@ -570,19 +575,20 @@ def _find_recent_note_links(message: str, vault_dir: Path, *, extra_links: list[
     return _dedupe_preserve_order(related)[:8]
 
 
-def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tuple[str, str | None, list[str]]:
+def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tuple[str, str | None, str | None, list[str], list[str]]:
     title_slug = _slugify(title)
     title_tokens = set(_extract_tokens(title))
     message_tokens = set(_extract_tokens(message))
-    candidate_scores: list[tuple[float, str]] = []
+    candidate_scores: list[tuple[float, str, str]] = []
 
     for note_path in sorted(vault_dir.rglob("*.md"), reverse=True)[:120]:
         stem = note_path.stem
         if stem.startswith("index") or stem.startswith("tpl-"):
             continue
         stem_slug = _slugify(stem)
+        shared_relative_path = note_path.relative_to(vault_dir.parent).as_posix()
         if stem_slug == title_slug:
-            return "update_candidate", f"[[{stem}]]", []
+            return "update_candidate", f"[[{stem}]]", shared_relative_path, [], []
 
         stem_tokens = set(_extract_tokens(stem))
         if not stem_tokens:
@@ -591,13 +597,14 @@ def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tup
         overlap_message = len(message_tokens & stem_tokens) / max(1, len(stem_tokens)) if message_tokens else 0.0
         score = max(overlap_title, overlap_message * 0.6)
         if score >= 0.34:
-            candidate_scores.append((score, stem))
+            candidate_scores.append((score, stem, shared_relative_path))
 
     candidate_scores.sort(key=lambda item: (-item[0], item[1].lower()))
-    merge_candidates = [f"[[{stem}]]" for _, stem in candidate_scores[:3]]
+    merge_candidates = [f"[[{stem}]]" for _, stem, _ in candidate_scores[:3]]
+    merge_candidate_paths = [path for _, _, path in candidate_scores[:3]]
     if merge_candidates:
-        return "merge_candidate", None, merge_candidates
-    return "create", None, []
+        return "merge_candidate", None, None, merge_candidates, merge_candidate_paths
+    return "create", None, None, [], []
 
 
 def _route_folder(note_type: str, projects: list[dict[str, str]]) -> str:
@@ -632,7 +639,9 @@ def _render_frontmatter(frontmatter: dict[str, Any]) -> list[str]:
         "classification_confidence",
         "note_action",
         "update_target",
+        "update_target_path",
         "merge_candidates",
+        "merge_candidate_paths",
     ]
     for key in ordered_keys:
         if key not in frontmatter:
@@ -922,7 +931,9 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         ]
     )
     related_notes = _find_recent_note_links(message, vault_dir, extra_links=[*project_links, *moc_candidates])
-    note_action, update_target, merge_candidates = _infer_note_reuse_strategy(title, message, vault_dir)
+    note_action, update_target, update_target_path, merge_candidates, merge_candidate_paths = _infer_note_reuse_strategy(
+        title, message, vault_dir
+    )
     related_notes = _dedupe_preserve_order([*related_notes, *merge_candidates])
 
     normalized_source = source.strip().lower()
@@ -956,7 +967,9 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         "classification_confidence": classification_confidence,
         "note_action": note_action,
         "update_target": update_target or "",
+        "update_target_path": update_target_path or "",
         "merge_candidates": merge_candidates,
+        "merge_candidate_paths": merge_candidate_paths,
     }
 
     notebooklm_title = _truncate_text(title, 72)
@@ -997,6 +1010,8 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         note_action=note_action,
         update_target=update_target,
         merge_candidates=merge_candidates,
+        update_target_path=update_target_path,
+        merge_candidate_paths=merge_candidate_paths,
     )
 
 
@@ -1120,7 +1135,9 @@ def build_markdown(
                 f"- claim_review_id: {clio.claim_review_id or '없음'}",
                 f"- note_action: {clio.note_action}",
                 f"- update_target: {clio.update_target or '없음'}",
+                f"- update_target_path: {clio.update_target_path or '없음'}",
                 f"- merge_candidates: {', '.join(clio.merge_candidates) if clio.merge_candidates else '없음'}",
+                f"- merge_candidate_paths: {', '.join(clio.merge_candidate_paths) if clio.merge_candidate_paths else '없음'}",
                 f"- tags: {', '.join(clio.tags)}",
                 f"- source_language: {clio.source_language}",
                 f"- source_urls: {', '.join(clio.source_urls) if clio.source_urls else '없음'}",
@@ -1231,7 +1248,9 @@ def process_file(
             "related_notes": clio_pipeline.related_notes,
             "note_action": clio_pipeline.note_action,
             "update_target": clio_pipeline.update_target,
+            "update_target_path": clio_pipeline.update_target_path,
             "merge_candidates": clio_pipeline.merge_candidates,
+            "merge_candidate_paths": clio_pipeline.merge_candidate_paths,
             "claim_review_required": clio_pipeline.claim_review_required,
             "claim_review_id": clio_pipeline.claim_review_id,
             "source_urls": clio_pipeline.source_urls,
@@ -1270,7 +1289,9 @@ def process_file(
         "classification_confidence": clio_pipeline.classification_confidence if clio_pipeline else None,
         "note_action": clio_pipeline.note_action if clio_pipeline else None,
         "update_target": clio_pipeline.update_target if clio_pipeline else None,
+        "update_target_path": clio_pipeline.update_target_path if clio_pipeline else None,
         "merge_candidates": clio_pipeline.merge_candidates if clio_pipeline else [],
+        "merge_candidate_paths": clio_pipeline.merge_candidate_paths if clio_pipeline else [],
         "claim_review_required": clio_pipeline.claim_review_required if clio_pipeline else False,
         "claim_review_id": clio_pipeline.claim_review_id if clio_pipeline else None,
         "tags": clio_pipeline.tags if clio_pipeline else [],

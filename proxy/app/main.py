@@ -31,13 +31,16 @@ from .orch_store import (
     append_agent_event,
     append_telegram_chat_history,
     approve_stage_one,
+    apply_clio_note_suggestion,
     clear_telegram_chat_history,
     confirm_clio_claim_review,
     get_clio_knowledge_memory,
     get_clio_claim_review,
+    get_clio_note_suggestion,
     create_approval_request,
     create_event_id,
     create_inbox_task,
+    dismiss_clio_note_suggestion,
     find_event_by_id,
     get_approval_queue_stats,
     get_approval_request,
@@ -46,6 +49,7 @@ from .orch_store import (
     get_minerva_working_memory,
     get_telegram_chat_history,
     list_pending_clio_claim_reviews,
+    list_pending_clio_note_suggestions,
     list_agent_events,
     make_dedupe_key,
     mark_approval_executed,
@@ -64,9 +68,11 @@ from .telegram_bridge import (
     create_approval_stage1_keyboard,
     create_approval_stage2_keyboard,
     create_clio_claim_review_keyboard,
+    create_clio_note_suggestion_keyboard,
     render_approval_stage1_text,
     render_approval_stage2_text,
     render_clio_claim_review_text,
+    render_clio_note_suggestion_text,
     send_telegram_message,
     send_telegram_text_message,
 )
@@ -84,7 +90,7 @@ LOGS_DIR = SHARED_ROOT / "logs"
 UI_LLM_DAILY_LIMIT = int(float(os.getenv("UI_LLM_DAILY_LIMIT", os.getenv("LLM_DAILY_LIMIT", "1000")) or "1000"))
 
 DIRECT_CALLBACK_ACTIONS = {"clio_save", "hermes_deep_dive", "minerva_insight"}
-SYSTEM_CALLBACK_ACTIONS = {"clio_confirm_knowledge"}
+SYSTEM_CALLBACK_ACTIONS = {"clio_confirm_knowledge", "clio_apply_suggestion", "clio_dismiss_suggestion"}
 INTERNAL_APPROVAL_ACTIONS = {"approval_yes", "approval_no", "approval_commit"}
 TEXT_RATE_WINDOW: dict[str, dict[str, int]] = {}
 
@@ -707,6 +713,21 @@ def _execute_approval_request(approval: dict[str, Any], *, actor_user_id: str) -
     payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     target_type = str(payload.get("targetType") or "").strip()
 
+    if target_type == "clio_note_suggestion" or str(approval.get("action") or "") == "clio_apply_suggestion":
+        suggestion_id = str(payload.get("suggestionId") or "").strip()
+        if not suggestion_id:
+            return {"ok": False, "reason": "clio_note_suggestion_id_missing"}
+        applied = apply_clio_note_suggestion(suggestion_id, actor_user_id)
+        if not applied:
+            return {"ok": False, "reason": "clio_note_suggestion_not_found"}
+        return {
+            "ok": True,
+            "action": approval.get("action"),
+            "targetType": "clio_note_suggestion",
+            "noteSuggestion": applied,
+            "callbackText": "Clio 노트 제안을 review 상태로 반영했습니다.",
+        }
+
     if target_type == "clio_claim_review" or str(approval.get("action") or "") == "clio_confirm_knowledge":
         review_id = str(payload.get("reviewId") or "").strip()
         if not review_id:
@@ -1202,6 +1223,79 @@ async def telegram_webhook(request: Request) -> JSONResponse:
                 }
             )
 
+        if action == "clio_dismiss_suggestion":
+            suggestion_id = args[0] if args else ""
+            if not suggestion_id:
+                answer_telegram_callback(callback_query_id=callback_id, text="제안 ID가 없습니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_id_missing"})
+            suggestion = get_clio_note_suggestion(suggestion_id)
+            if not suggestion:
+                answer_telegram_callback(callback_query_id=callback_id, text="Clio note suggestion을 찾지 못했습니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_not_found"})
+            if str(suggestion.get("suggestionState") or "") != "pending":
+                answer_telegram_callback(callback_query_id=callback_id, text="이미 처리된 Clio note suggestion입니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_not_pending", "suggestion": suggestion})
+            dismissed = dismiss_clio_note_suggestion(suggestion_id, user_id)
+            answer_telegram_callback(callback_query_id=callback_id, text="Clio note suggestion을 보류했습니다.")
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "mode": "callback_query",
+                    "action": action,
+                    "suggestion": dismissed or suggestion,
+                }
+            )
+
+        if action == "clio_apply_suggestion":
+            suggestion_id = args[0] if args else ""
+            if not suggestion_id:
+                answer_telegram_callback(callback_query_id=callback_id, text="제안 ID가 없습니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_id_missing"})
+            suggestion = get_clio_note_suggestion(suggestion_id)
+            if not suggestion:
+                answer_telegram_callback(callback_query_id=callback_id, text="Clio note suggestion을 찾지 못했습니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_not_found"})
+            if str(suggestion.get("suggestionState") or "") != "pending":
+                answer_telegram_callback(callback_query_id=callback_id, text="이미 처리된 Clio note suggestion입니다.", show_alert=True)
+                return JSONResponse({"ok": True, "ignored": True, "reason": "clio_note_suggestion_not_pending", "suggestion": suggestion})
+            created = create_approval_request(
+                action=action,
+                event_id=f"clio-note-suggestion:{suggestion_id}",
+                event_title=str(suggestion.get("title", "")),
+                topic_key=str(suggestion.get("title", "")),
+                chat_id=chat_id,
+                requested_by_user_id=user_id,
+                payload={
+                    "targetType": "clio_note_suggestion",
+                    "suggestionId": suggestion_id,
+                    "vaultFile": str(suggestion.get("vaultFile", "")),
+                },
+            )
+            approval = created["approval"]
+            send_telegram_message(
+                {
+                    "chat_id": chat_id,
+                    "text": render_approval_stage1_text(approval),
+                    "reply_markup": create_approval_stage1_keyboard(str(approval.get("id", ""))),
+                    "disable_web_page_preview": True,
+                }
+            )
+            answer_telegram_callback(
+                callback_query_id=callback_id,
+                text="이미 생성된 승인 요청이 있습니다." if created.get("reused") else "Clio note suggestion 승인 요청을 생성했습니다.",
+            )
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "mode": "callback_query",
+                    "action": action,
+                    "approvalRequired": True,
+                    "approval": approval,
+                    "suggestion": suggestion,
+                    "reused": bool(created.get("reused")),
+                }
+            )
+
         if action not in DIRECT_CALLBACK_ACTIONS:
             answer_telegram_callback(callback_query_id=callback_id, text="지원하지 않는 액션입니다.")
             return JSONResponse({"ok": True, "ignored": True, "reason": "unsupported_action"})
@@ -1279,6 +1373,7 @@ async def telegram_webhook(request: Request) -> JSONResponse:
                 "• 일반 메시지를 보내면 Minerva가 답변합니다.\n"
                 "• /reset 으로 대화 히스토리를 초기화할 수 있습니다.\n"
                 "• /clio_reviews : 승인 대기 중인 Clio knowledge 노트 확인\n"
+                "• /clio_suggestions : 기존 노트 update/merge 제안 확인\n"
                 "• /gcal_connect : Google Calendar read-only 연결 링크 발급\n"
                 "• /gcal_status : Calendar 연결 상태 확인\n"
                 "• /gcal_today : 오늘 일정 요약 확인\n"
@@ -1323,6 +1418,41 @@ async def telegram_webhook(request: Request) -> JSONResponse:
                     "chatId": chat_id,
                     "pendingCount": len(reviews),
                     "review": review,
+                    "telegram": send_result,
+                }
+            )
+
+        if text == "/clio_suggestions":
+            suggestions = list_pending_clio_note_suggestions(limit=5)
+            if not suggestions:
+                send_result = send_telegram_text_message(chat_id=chat_id, text="현재 승인 대기 중인 Clio note suggestion이 없습니다.")
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "mode": "message_text",
+                        "command": text,
+                        "chatId": chat_id,
+                        "pendingCount": 0,
+                        "telegram": send_result,
+                    }
+                )
+            suggestion = suggestions[0]
+            send_result = send_telegram_message(
+                {
+                    "chat_id": chat_id,
+                    "text": render_clio_note_suggestion_text(suggestion, pending_count=len(suggestions)),
+                    "reply_markup": create_clio_note_suggestion_keyboard(str(suggestion.get("id", ""))),
+                    "disable_web_page_preview": True,
+                }
+            )
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "mode": "message_text",
+                    "command": text,
+                    "chatId": chat_id,
+                    "pendingCount": len(suggestions),
+                    "suggestion": suggestion,
                     "telegram": send_result,
                 }
             )
@@ -1536,6 +1666,8 @@ def runtime_metrics() -> dict[str, Any]:
                 auto_clio_created += 1
 
     approval_stats = get_approval_queue_stats()
+    pending_clio_claim_reviews = len(list_pending_clio_claim_reviews(limit=200))
+    pending_clio_note_suggestions = len(list_pending_clio_note_suggestions(limit=200))
 
     required = 0
     translated = 0
@@ -1611,7 +1743,8 @@ def runtime_metrics() -> dict[str, Any]:
                 "created": auto_clio_created,
                 "successRate": _ratio(auto_clio_created, auto_clio_attempted),
             },
-            "pendingClioClaimReviews": len(list_pending_clio_claim_reviews(limit=200)),
+            "pendingClioClaimReviews": pending_clio_claim_reviews,
+            "pendingClioNoteSuggestions": pending_clio_note_suggestions,
             "pendingApprovals": approval_stats.get("pending", 0),
             "approvalQueue": approval_stats,
         },
