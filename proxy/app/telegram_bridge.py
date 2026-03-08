@@ -219,6 +219,7 @@ def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_coun
     action = clean_line(str(suggestion.get("noteAction") or "create"))
     target = clean_line(str(suggestion.get("updateTarget") or ""))
     merge_candidates = suggestion.get("mergeCandidates") if isinstance(suggestion.get("mergeCandidates"), list) else []
+    diff_summary = suggestion.get("diffSummary") if isinstance(suggestion.get("diffSummary"), list) else []
     lines = [
         "🧩 Clio note suggestion",
         "",
@@ -232,6 +233,10 @@ def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_coun
         lines.append(f"- 병합 후보: {', '.join(merge_candidates[:3])}")
     else:
         lines.append("- 병합 후보: 없음")
+    if diff_summary:
+        lines.append("- 변경 요약:")
+        for item in diff_summary[:3]:
+            lines.append(f"  • {short_text(str(item), 96)}")
     lines.extend(
         [
             f"- 대기 건수: {pending_count}",

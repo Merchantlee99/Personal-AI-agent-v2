@@ -12,7 +12,19 @@ echo "[morning-preflight] ensure runtime is up"
 bash scripts/runtime/compose.sh up -d llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
 
 echo "[morning-preflight] check proxy health"
-curl -sS http://127.0.0.1:8001/health >/tmp/nanoclaw_morning_health.json
+HEALTH_STATUS="000"
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  HEALTH_STATUS="$(curl -sS -o /tmp/nanoclaw_morning_health.json -w '%{http_code}' http://127.0.0.1:8001/health || true)"
+  if [[ "$HEALTH_STATUS" == "200" ]]; then
+    break
+  fi
+  sleep 1
+done
+if [[ "$HEALTH_STATUS" != "200" ]]; then
+  echo "[morning-preflight] llm-proxy healthcheck failed status=$HEALTH_STATUS" >&2
+  cat /tmp/nanoclaw_morning_health.json >&2 || true
+  exit 1
+fi
 python3 - <<'PY'
 import json
 from pathlib import Path

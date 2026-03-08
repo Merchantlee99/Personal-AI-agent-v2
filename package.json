@@ -24,6 +24,7 @@
     "verify:clio:knowledge": "bash scripts/verify/check-clio-knowledge-review.sh",
     "verify:clio:approval": "bash scripts/verify/check-clio-knowledge-approval.sh",
     "verify:clio:suggestion": "bash scripts/verify/check-clio-note-suggestion.sh",
+    "verify:clio:merge": "bash scripts/verify/check-clio-merge-suggestion.sh",
     "verify:llm-usage": "bash scripts/verify/check-llm-usage-alerts.sh",
     "security:check-orchestration": "bash scripts/security/check-orchestration-hardening.sh",
     "security:branch-protect": "bash scripts/security/apply-branch-protection.sh",

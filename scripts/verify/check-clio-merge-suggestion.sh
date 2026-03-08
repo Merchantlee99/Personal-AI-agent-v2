@@ -12,7 +12,6 @@ get_env() {
   runtime_env_get "$key"
 }
 
-API_PORT="${API_PORT:-8001}"
 WEBHOOK_SECRET="$(get_env TELEGRAM_WEBHOOK_SECRET)"
 ALLOWED_USER_IDS="$(get_env TELEGRAM_ALLOWED_USER_IDS)"
 ALLOWED_CHAT_IDS="$(get_env TELEGRAM_ALLOWED_CHAT_IDS)"
@@ -30,19 +29,19 @@ SOURCE_USER_ID="${SOURCE_USER_ID:-10001}"
 SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-$(get_env TELEGRAM_CHAT_ID)}"
 SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-20001}"
 
-echo "[clio-suggestion] ensure llm-proxy runtime is up"
+echo "[clio-merge] ensure llm-proxy runtime is up"
 bash "${REPO_ROOT}/scripts/runtime/compose.sh" up -d llm-proxy >/dev/null
 HEALTH_STATUS="000"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  HEALTH_STATUS="$(curl -sS -o /tmp/clio_suggestion_health.json -w '%{http_code}' "http://127.0.0.1:${API_PORT}/health" || true)"
+  HEALTH_STATUS="$(curl -sS -o /tmp/clio_merge_health.json -w '%{http_code}' "http://127.0.0.1:8001/health" || true)"
   if [[ "$HEALTH_STATUS" == "200" ]]; then
     break
   fi
   sleep 1
 done
 if [[ "$HEALTH_STATUS" != "200" ]]; then
-  echo "[clio-suggestion] llm-proxy healthcheck failed status=${HEALTH_STATUS}" >&2
-  cat /tmp/clio_suggestion_health.json >&2 || true
+  echo "[clio-merge] llm-proxy healthcheck failed status=${HEALTH_STATUS}" >&2
+  cat /tmp/clio_merge_health.json >&2 || true
   exit 1
 fi
 
@@ -68,21 +67,21 @@ print(status); print(raw.decode("utf-8", errors="ignore"))' "$secret" < "$payloa
 post_message_text() {
   local message_text="$1"
   local output="$2"
-  cat > /tmp/telegram_clio_suggestion_message.json <<JSON
+  cat > /tmp/telegram_clio_merge_message.json <<JSON
 {
   "update_id": 1,
   "message": {
     "message_id": 1,
-    "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-clio-suggestion-test" },
+    "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-clio-merge-test" },
     "chat": { "id": ${SOURCE_CHAT_ID}, "type": "private" },
     "text": "${message_text}"
   }
 }
 JSON
   local status
-  status="$(post_update_via_proxy /tmp/telegram_clio_suggestion_message.json "$output" "$WEBHOOK_SECRET" || true)"
+  status="$(post_update_via_proxy /tmp/telegram_clio_merge_message.json "$output" "$WEBHOOK_SECRET" || true)"
   if [[ "$status" != "200" ]]; then
-    echo "[clio-suggestion] message webhook failed text=${message_text} status=${status}" >&2
+    echo "[clio-merge] message webhook failed text=${message_text} status=${status}" >&2
     cat "$output" >&2 || true
     exit 1
   fi
@@ -91,29 +90,29 @@ JSON
 post_callback_data() {
   local callback_data="$1"
   local output="$2"
-  cat > /tmp/telegram_clio_suggestion_callback.json <<JSON
+  cat > /tmp/telegram_clio_merge_callback.json <<JSON
 {
   "update_id": 1,
   "callback_query": {
     "id": "cbq-${RANDOM}",
     "data": "${callback_data}",
-    "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-clio-suggestion-test" },
+    "from": { "id": ${SOURCE_USER_ID}, "username": "nanoclaw-clio-merge-test" },
     "message": { "chat": { "id": ${SOURCE_CHAT_ID}, "type": "private" } }
   }
 }
 JSON
   local status
-  status="$(post_update_via_proxy /tmp/telegram_clio_suggestion_callback.json "$output" "$WEBHOOK_SECRET" || true)"
+  status="$(post_update_via_proxy /tmp/telegram_clio_merge_callback.json "$output" "$WEBHOOK_SECRET" || true)"
   if [[ "$status" != "200" ]]; then
-    echo "[clio-suggestion] callback failed data=${callback_data} status=${status}" >&2
+    echo "[clio-merge] callback failed data=${callback_data} status=${status}" >&2
     cat "$output" >&2 || true
     exit 1
   fi
 }
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
-export CLIO_SUGGESTION_RUN_ID="$RUN_ID"
-echo "[clio-suggestion] seed pending suggestion ${RUN_ID}"
+export CLIO_MERGE_SUGGESTION_RUN_ID="$RUN_ID"
+echo "[clio-merge] seed merge candidate ${RUN_ID}"
 
 SUGGESTION_ID="$(
 python3 - <<'PY'
@@ -122,58 +121,64 @@ import json
 import os
 from pathlib import Path
 
-run_id = os.environ["CLIO_SUGGESTION_RUN_ID"]
+run_id = os.environ["CLIO_MERGE_SUGGESTION_RUN_ID"]
 shared_root = Path("shared_data")
 memory_path = shared_root / "shared_memory" / "clio_knowledge_memory.json"
 payload = json.loads(memory_path.read_text(encoding="utf-8"))
 
-draft_rel = f"obsidian_vault/01-Knowledge/Clio Suggestion Draft {run_id}.md"
-target_rel = f"obsidian_vault/01-Knowledge/Clio Suggestion Target {run_id}.md"
+draft_rel = f"obsidian_vault/01-Knowledge/Clio Merge Draft {run_id}.md"
+candidate_a_rel = f"obsidian_vault/01-Knowledge/Clio Merge Candidate A {run_id}.md"
+candidate_b_rel = f"obsidian_vault/01-Knowledge/Clio Merge Candidate B {run_id}.md"
 
-draft_path = shared_root / draft_rel
-target_path = shared_root / target_rel
-draft_path.parent.mkdir(parents=True, exist_ok=True)
-target_path.parent.mkdir(parents=True, exist_ok=True)
+entries = {
+    draft_rel: [
+        "---",
+        f'title: "Clio Merge Draft {run_id}"',
+        'type: "knowledge"',
+        'draft_state: "draft"',
+        'updated: "2026-03-08"',
+        "---",
+        "",
+        "## 핵심 주장",
+        "서로 다른 두 노트를 연결할 신규 초안입니다.",
+        "",
+        "## 연결 포인트",
+        "측정 루프와 회고 루프를 함께 본다.",
+    ],
+    candidate_a_rel: [
+        "---",
+        f'title: "Clio Merge Candidate A {run_id}"',
+        'type: "knowledge"',
+        'draft_state: "confirmed"',
+        'updated: "2026-03-08"',
+        "---",
+        "",
+        "## 핵심 주장",
+        "측정 루프 노트",
+    ],
+    candidate_b_rel: [
+        "---",
+        f'title: "Clio Merge Candidate B {run_id}"',
+        'type: "knowledge"',
+        'draft_state: "confirmed"',
+        'updated: "2026-03-08"',
+        "---",
+        "",
+        "## 핵심 주장",
+        "회고 루프 노트",
+    ],
+}
 
-draft_path.write_text(
-    "\n".join(
-        [
-            "---",
-            f'title: "Clio Suggestion Draft {run_id}"',
-            'type: "knowledge"',
-            'draft_state: "draft"',
-            'updated: "2026-03-08"',
-            "---",
-            "",
-            "## 핵심 주장",
-            "신규 초안입니다.",
-        ]
-    ),
-    encoding="utf-8",
-)
-
-target_path.write_text(
-    "\n".join(
-        [
-            "---",
-            f'title: "Clio Suggestion Target {run_id}"',
-            'type: "knowledge"',
-            'draft_state: "confirmed"',
-            'updated: "2026-03-08"',
-            "---",
-            "",
-            "## 핵심 주장",
-            "기존 지식 노트입니다.",
-        ]
-    ),
-    encoding="utf-8",
-)
+for rel, lines in entries.items():
+    path = shared_root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 recent = payload.setdefault("recentNotes", [])
 recent.insert(
     0,
     {
-        "title": f"Clio Suggestion Draft {run_id}",
+        "title": f"Clio Merge Draft {run_id}",
         "type": "knowledge",
         "folder": "01-Knowledge",
         "templateName": "tpl-knowledge.md",
@@ -181,15 +186,15 @@ recent.insert(
         "tags": ["type/knowledge", "domain/pm"],
         "projectLinks": ["[[NanoClaw]]"],
         "mocCandidates": ["[[PM 스킬 맵]]"],
-        "relatedNotes": [f"[[Clio Suggestion Target {run_id}]]"],
+        "relatedNotes": [f"[[Clio Merge Candidate A {run_id}]]", f"[[Clio Merge Candidate B {run_id}]]"],
         "draftState": "draft",
         "claimReviewRequired": False,
         "claimReviewId": "",
-        "noteAction": "update_candidate",
-        "updateTarget": f"[[Clio Suggestion Target {run_id}]]",
-        "updateTargetPath": target_rel,
-        "mergeCandidates": [],
-        "mergeCandidatePaths": [],
+        "noteAction": "merge_candidate",
+        "updateTarget": "",
+        "updateTargetPath": "",
+        "mergeCandidates": [f"[[Clio Merge Candidate A {run_id}]]", f"[[Clio Merge Candidate B {run_id}]]"],
+        "mergeCandidatePaths": [candidate_a_rel, candidate_b_rel],
         "suggestionState": "pending",
         "updatedAt": "2026-03-08T00:00:00Z",
     },
@@ -200,15 +205,15 @@ PY
 )"
 
 if [[ -z "$SUGGESTION_ID" ]]; then
-  echo "[clio-suggestion] suggestion id missing" >&2
+  echo "[clio-merge] suggestion id missing" >&2
   exit 1
 fi
 
-echo "[clio-suggestion] list pending suggestions"
-post_message_text "/clio_suggestions" "/tmp/clio_suggestions_message.json"
+echo "[clio-merge] list pending suggestions"
+post_message_text "/clio_suggestions" "/tmp/clio_merge_message.json"
 python3 - <<'PY' "$SUGGESTION_ID"
 import json, sys
-payload = json.loads(open('/tmp/clio_suggestions_message.json','r',encoding='utf-8').read())
+payload = json.loads(open('/tmp/clio_merge_message.json','r',encoding='utf-8').read())
 suggestion_id = sys.argv[1]
 assert payload.get("ok") is True, payload
 assert payload.get("command") == "/clio_suggestions", payload
@@ -217,15 +222,15 @@ suggestion = payload.get("suggestion") or {}
 assert str(suggestion.get("id") or "").strip() == suggestion_id, payload
 diff_summary = suggestion.get("diffSummary") or []
 assert isinstance(diff_summary, list) and diff_summary, payload
-print("[clio-suggestion] pending suggestion listing ok")
+print("[clio-merge] pending suggestion listing ok")
 PY
 
-echo "[clio-suggestion] queue approval request"
-post_callback_data "clio_apply_suggestion:${SUGGESTION_ID}" "/tmp/clio_suggestion_start.json"
+echo "[clio-merge] queue approval request"
+post_callback_data "clio_apply_suggestion:${SUGGESTION_ID}" "/tmp/clio_merge_start.json"
 APPROVAL_ID="$(
 python3 - <<'PY'
 import json
-payload = json.loads(open('/tmp/clio_suggestion_start.json','r',encoding='utf-8').read())
+payload = json.loads(open('/tmp/clio_merge_start.json','r',encoding='utf-8').read())
 assert payload.get("ok") is True, payload
 assert payload.get("approvalRequired") is True, payload
 approval = payload.get("approval") or {}
@@ -235,27 +240,15 @@ print(approval_id)
 PY
 )"
 
-echo "[clio-suggestion] early commit must fail"
-post_callback_data "approval_commit:${APPROVAL_ID}" "/tmp/clio_suggestion_commit_early.json"
+echo "[clio-merge] approve stage1 + commit"
+post_callback_data "approval_yes:${APPROVAL_ID}" "/tmp/clio_merge_yes.json"
+post_callback_data "approval_commit:${APPROVAL_ID}" "/tmp/clio_merge_commit.json"
 python3 - <<'PY'
 import json
-payload = json.loads(open('/tmp/clio_suggestion_commit_early.json','r',encoding='utf-8').read())
-assert payload.get("reason") == "approval_not_pending_stage2", payload
-print("[clio-suggestion] early commit rejected")
-PY
-
-echo "[clio-suggestion] approve stage1 + commit"
-post_callback_data "approval_yes:${APPROVAL_ID}" "/tmp/clio_suggestion_yes.json"
-post_callback_data "approval_commit:${APPROVAL_ID}" "/tmp/clio_suggestion_commit.json"
-python3 - <<'PY' "$SUGGESTION_ID"
-import json, sys
-suggestion_id = sys.argv[1]
-payload = json.loads(open('/tmp/clio_suggestion_commit.json','r',encoding='utf-8').read())
+payload = json.loads(open('/tmp/clio_merge_commit.json','r',encoding='utf-8').read())
 assert payload.get("ok") is True, payload
 assert payload.get("action") == "clio_apply_suggestion", payload
-suggestion = payload.get("approval") or {}
-assert suggestion, payload
-print("[clio-suggestion] commit response ok")
+print("[clio-merge] commit response ok")
 PY
 
 python3 - <<'PY' "$RUN_ID" "$SUGGESTION_ID"
@@ -265,20 +258,25 @@ from pathlib import Path
 run_id = sys.argv[1]
 suggestion_id = sys.argv[2]
 shared_root = Path("shared_data")
-draft_rel = f"obsidian_vault/01-Knowledge/Clio Suggestion Draft {run_id}.md"
-target_rel = f"obsidian_vault/01-Knowledge/Clio Suggestion Target {run_id}.md"
+draft_rel = f"obsidian_vault/01-Knowledge/Clio Merge Draft {run_id}.md"
+candidate_a_rel = f"obsidian_vault/01-Knowledge/Clio Merge Candidate A {run_id}.md"
+candidate_b_rel = f"obsidian_vault/01-Knowledge/Clio Merge Candidate B {run_id}.md"
 
 memory = json.loads((shared_root / "shared_memory" / "clio_knowledge_memory.json").read_text(encoding="utf-8"))
 note = next(item for item in memory.get("recentNotes", []) if item.get("vaultFile") == draft_rel)
 assert note.get("draftState") == "review", note
 assert note.get("suggestionState") == "approved", note
 
-target_body = (shared_root / target_rel).read_text(encoding="utf-8")
-assert "## Clio Suggested Update" in target_body, target_body
-assert f"<!-- clio-suggestion:{suggestion_id} -->" in target_body, target_body
+candidate_a = (shared_root / candidate_a_rel).read_text(encoding="utf-8")
+candidate_b = (shared_root / candidate_b_rel).read_text(encoding="utf-8")
 draft_body = (shared_root / draft_rel).read_text(encoding="utf-8")
+assert "## Clio Related Draft" in candidate_a, candidate_a
+assert "## Clio Related Draft" in candidate_b, candidate_b
+assert f"<!-- clio-suggestion:{suggestion_id} -->" in candidate_a, candidate_a
+assert f"<!-- clio-suggestion:{suggestion_id} -->" in candidate_b, candidate_b
+assert "## Clio Approved Merge Links" in draft_body, draft_body
 assert 'draft_state: "review"' in draft_body, draft_body
-print("[clio-suggestion] memory + vault state ok")
+print("[clio-merge] memory + vault state ok")
 PY
 
-echo "[clio-suggestion] PASS"
+echo "[clio-merge] PASS"

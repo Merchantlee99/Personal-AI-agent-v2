@@ -671,6 +671,73 @@ def _normalize_clio_note_suggestion(item: dict[str, Any]) -> dict[str, Any] | No
     }
 
 
+def _strip_frontmatter(markdown: str) -> str:
+    if not markdown.startswith("---"):
+        return markdown
+    lines = markdown.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return markdown
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            return "\n".join(lines[index + 1 :]).strip()
+    return markdown
+
+
+def _extract_diff_candidate_lines(markdown: str, *, limit: int = 3) -> list[str]:
+    body = _strip_frontmatter(markdown)
+    lines: list[str] = []
+    for raw in body.splitlines():
+        line = _sanitize_text(raw, 180)
+        if not line:
+            continue
+        if line.startswith("## "):
+            line = line[3:].strip()
+        elif line.startswith("### "):
+            line = line[4:].strip()
+        if len(line) < 8:
+            continue
+        lines.append(line)
+        if len(lines) >= max(1, limit * 3):
+            break
+    return lines
+
+
+def _build_clio_note_diff_summary(suggestion: dict[str, Any]) -> list[str]:
+    draft_path = _safe_shared_path(str(suggestion.get("vaultFile") or ""))
+    if not draft_path or not draft_path.is_file():
+        return []
+
+    draft_lines = _extract_diff_candidate_lines(draft_path.read_text(encoding="utf-8"), limit=4)
+    if not draft_lines:
+        return []
+
+    if suggestion.get("noteAction") == "update_candidate":
+        target_path = _safe_shared_path(str(suggestion.get("updateTargetPath") or ""))
+        target_body = target_path.read_text(encoding="utf-8") if target_path and target_path.is_file() else ""
+        target_text = _sanitize_text(_strip_frontmatter(target_body), 5000)
+        summary: list[str] = []
+        seen: set[str] = set()
+        for line in draft_lines:
+            key = line.lower()
+            if key in seen:
+                continue
+            if target_text and line in target_text:
+                continue
+            summary.append(line)
+            seen.add(key)
+            if len(summary) >= 3:
+                break
+        return summary
+
+    merge_candidates = suggestion.get("mergeCandidates") if isinstance(suggestion.get("mergeCandidates"), list) else []
+    summary = []
+    for item in merge_candidates[:3]:
+        line = _sanitize_text(item, 120)
+        if line:
+            summary.append(f"연결 후보: {line}")
+    return summary or draft_lines[:2]
+
+
 def list_pending_clio_note_suggestions(limit: int = 8) -> list[dict[str, Any]]:
     memory = get_clio_knowledge_memory()
     suggestions: list[dict[str, Any]] = []
@@ -682,6 +749,7 @@ def list_pending_clio_note_suggestions(limit: int = 8) -> list[dict[str, Any]]:
             continue
         if suggestion.get("suggestionState") not in {"", "pending"}:
             continue
+        suggestion["diffSummary"] = _build_clio_note_diff_summary(suggestion)
         suggestions.append(suggestion)
         if len(suggestions) >= max(1, limit):
             break
