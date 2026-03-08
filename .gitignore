@@ -26,6 +26,8 @@ shared_data/obsidian_vault/*
 !shared_data/obsidian_vault/.gitkeep
 shared_data/shared_memory/*
 !shared_data/shared_memory/.gitkeep
+shared_data/runtime_agent_notes/*
+!shared_data/runtime_agent_notes/.gitkeep
 shared_data/queue/*
 !shared_data/queue/.gitkeep
 shared_data/workflows/*

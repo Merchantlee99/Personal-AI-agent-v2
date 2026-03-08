@@ -3,16 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-if [[ -f "${REPO_ROOT}/.env.local" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${REPO_ROOT}/.env.local"
-  set +a
-fi
+source "${REPO_ROOT}/scripts/runtime/load-env.sh"
+load_runtime_env "${REPO_ROOT}/.env.local"
 
 API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
 require_schema="${ORCH_REQUIRE_SCHEMA_V1:-false}"
+if docker ps --format '{{.Names}}' | grep -qx 'nanoclaw-llm-proxy'; then
+  runtime_require_schema="$(docker exec nanoclaw-llm-proxy sh -lc "printenv ORCH_REQUIRE_SCHEMA_V1 2>/dev/null || true" | tr -d '\r')"
+  require_schema="${runtime_require_schema:-false}"
+fi
 require_schema="$(printf '%s' "$require_schema" | tr '[:upper:]' '[:lower:]')"
 
 run_case() {
@@ -20,14 +20,11 @@ run_case() {
   local payload="$2"
   local expected_status="$3"
   local output="/tmp/event_contract_${name}.json"
+  local payload_file="/tmp/event_contract_${name}.payload.json"
 
+  printf '%s' "$payload" >"$payload_file"
   local status
-  status="$(
-    curl -sS -o "$output" -w '%{http_code}' \
-      -X POST "${BASE_URL}/api/orchestration/events" \
-      -H 'content-type: application/json' \
-      -d "$payload" || true
-  )"
+  status="$(bash "${REPO_ROOT}/scripts/runtime/internal-api-request.sh" POST "${BASE_URL}/api/orchestration/events" "$output" "$payload_file" || true)"
 
   if [[ "$status" != "$expected_status" ]]; then
     echo "[event-contract] ${name} unexpected status=${status} expected=${expected_status}" >&2

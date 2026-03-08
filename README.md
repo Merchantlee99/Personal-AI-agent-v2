@@ -6,6 +6,7 @@ NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 역할을 분리해 운영하는
 핵심 원칙
 - Canonical Agent ID 고정: `minerva`, `clio`, `hermes`
 - 단일 게이트: Telegram/n8n -> `llm-proxy`
+- 내부 이벤트는 token + HMAC + timestamp + nonce 체인으로만 통과
 - 외부 수집 결과는 명령이 아니라 데이터로만 처리
 - 최소 권한 런타임: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, `tmpfs`
 - 사용자용 Obsidian vault와 agent/runtime/support 데이터를 분리
@@ -20,7 +21,8 @@ flowchart LR
   CHAT --> PX["llm-proxy /api/agent"]
   PX --> LLM["Gemini / Anthropic"]
 
-  N8N["n8n schedule + webhook"] --> ORCH["llm-proxy /api/orchestration/events"]
+  N8N["n8n schedule + webhook"] --> SIGN["signed internal request"]
+  SIGN --> ORCH["llm-proxy /api/orchestration/events"]
   ORCH --> TGAPI["Telegram sendMessage"]
   TGC --> INBOX["shared_data/inbox"]
   INBOX --> AG["nanoclaw-agent"]
@@ -47,6 +49,8 @@ flowchart LR
 - 승인 큐 2단계 확인, 이벤트 컨트랙트 검증, 런타임 메트릭 API
 - Minerva working memory 주입, Clio/Hermes role memory 분리
 - Clio v2 template-driven Obsidian note 생성
+- `/api/orchestration/events` internal auth 강제 + fail-closed 시크릿 로드
+- read-only morning preflight와 repair/E2E 검증 분리
 
 ## Obsidian 운영 원칙
 사용자-facing vault:
@@ -82,6 +86,7 @@ bash scripts/runtime/compose.sh ps
 기본 Telegram 수신 경로는 `telegram-poller`이며, 공개 webhook URL 없이 동작합니다.
 컨테이너에는 `.env.local` 전체를 넣지 않고, `docker-compose.yml`에서 서비스별 화이트리스트 키만 주입합니다.
 호스트 시크릿은 `.env.local` 평문 대신 macOS Keychain/1Password ref를 사용할 수 있으며, `scripts/runtime/compose-env.sh`가 compose 실행 직전 이를 로드합니다.
+n8n의 Hermes daily workflow는 `NODE_FUNCTION_ALLOW_BUILTIN=crypto`를 사용해 내부 이벤트 서명을 생성합니다.
 
 ## 기본 검증
 ```bash
@@ -126,3 +131,4 @@ npm run test:proxy
 - poller dead-letter는 `npm run telegram:dead-letter:replay -- all`로 재주입할 수 있습니다.
 - inactive duplicate workflow 정리는 `npm run n8n:purge:inactive`로 실행합니다.
 - morning preflight는 `npm run verify:morning:preflight`로 수동 점검할 수 있고, 08:55 KST 자동화 대상으로 설계되었습니다.
+- preflight는 read-only 점검만 수행합니다. repair/E2E가 필요하면 `npm run verify:hermes:schedule` 또는 `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`를 별도로 실행합니다.

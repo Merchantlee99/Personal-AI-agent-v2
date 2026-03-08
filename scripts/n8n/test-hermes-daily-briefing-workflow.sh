@@ -74,10 +74,44 @@ PAYLOAD='{
   ]
 }'
 
+post_with_retry() {
+  local outfile="$1"
+  local attempt=1
+  local max_attempts=5
+
+  while (( attempt <= max_attempts )); do
+    curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
+      -H 'content-type: application/json' \
+      -d "$PAYLOAD" >"$outfile"
+
+    if python3 - "$outfile" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+raw = path.read_text(encoding="utf-8").strip()
+if not raw:
+    raise SystemExit(1)
+payload = json.loads(raw)
+if not isinstance(payload, dict) or payload.get("ok") is not True:
+    raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+
+    echo "[hermes-test] retry ${attempt}/${max_attempts} after empty or invalid response"
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+
+  echo "[hermes-test] failed to get valid JSON response from hermes-daily-briefing webhook" >&2
+  return 1
+}
+
 echo "[hermes-test] first run (expect skipped=false)"
-curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
-  -H 'content-type: application/json' \
-  -d "$PAYLOAD" >/tmp/hermes_first.json
+post_with_retry /tmp/hermes_first.json
 cat /tmp/hermes_first.json
 
 python3 -c 'import json,sys; d=json.load(open("/tmp/hermes_first.json")); assert d.get("ok") is True; assert d.get("skipped") is False; assert "Hermes Daily Briefing" in (d.get("briefing_markdown") or ""); print("[hermes-test] first run validated")'
@@ -106,9 +140,7 @@ PY
 fi
 
 echo "[hermes-test] second run same payload (expect duplicate skip)"
-curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
-  -H 'content-type: application/json' \
-  -d "$PAYLOAD" >/tmp/hermes_second.json
+post_with_retry /tmp/hermes_second.json
 cat /tmp/hermes_second.json
 
 python3 -c 'import json,sys; d=json.load(open("/tmp/hermes_second.json")); assert d.get("ok") is True; assert d.get("skipped") is True; assert d.get("reason") == "duplicate_briefing"; print("[hermes-test] dedup validated")'

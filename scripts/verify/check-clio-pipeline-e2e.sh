@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 source scripts/runtime/compose-env.sh
+source scripts/runtime/load-env.sh
+
+ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env.local}"
+load_runtime_env "$ENV_FILE"
 
 API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
@@ -56,27 +60,25 @@ BEFORE_COUNT="$(count_verified_files)"
 echo "[clio-e2e] verified_inbox before=${BEFORE_COUNT}"
 
 TOPIC_KEY="hermes-impact-${RUN_ID}"
-EVENT_STATUS="$(
-  curl -sS -o /tmp/clio_e2e_event.json -w '%{http_code}' \
-    -X POST "${BASE_URL}/api/orchestration/events" \
-    -H 'content-type: application/json' \
-    -d "{
-      \"schemaVersion\":1,
-      \"agentId\":\"hermes\",
-      \"topicKey\":\"${TOPIC_KEY}\",
-      \"title\":\"High Impact Research Signal ${RUN_ID}\",
-      \"summary\":\"New AI research trend with strong production implication https://example.com/paper-${RUN_ID}\",
-      \"priority\":\"high\",
-      \"confidence\":0.91,
-      \"impactScore\":0.94,
-      \"tags\":[\"research\",\"paper\",\"trend\"],
-      \"sourceRefs\":[
-        {\"title\":\"Paper Source\",\"url\":\"https://example.com/paper-${RUN_ID}\"},
-        {\"title\":\"Analysis Source\",\"url\":\"https://example.com/analysis-${RUN_ID}\"}
-      ],
-      \"forceDispatch\":true
-    }" || true
-)"
+cat >/tmp/clio_e2e_event.payload.json <<JSON
+{
+  "schemaVersion": 1,
+  "agentId": "hermes",
+  "topicKey": "${TOPIC_KEY}",
+  "title": "High Impact Research Signal ${RUN_ID}",
+  "summary": "New AI research trend with strong production implication https://example.com/paper-${RUN_ID}",
+  "priority": "high",
+  "confidence": 0.91,
+  "impactScore": 0.94,
+  "tags": ["research", "paper", "trend"],
+  "sourceRefs": [
+    {"title": "Paper Source", "url": "https://example.com/paper-${RUN_ID}"},
+    {"title": "Analysis Source", "url": "https://example.com/analysis-${RUN_ID}"}
+  ],
+  "forceDispatch": true
+}
+JSON
+EVENT_STATUS="$(bash scripts/runtime/internal-api-request.sh POST "${BASE_URL}/api/orchestration/events" /tmp/clio_e2e_event.json /tmp/clio_e2e_event.payload.json || true)"
 
 if [[ "$EVENT_STATUS" != "200" ]]; then
   echo "[clio-e2e] orchestration event failed status=${EVENT_STATUS}" >&2

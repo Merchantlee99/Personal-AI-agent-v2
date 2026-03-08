@@ -33,7 +33,7 @@ flowchart LR
 ## 3) 내부 요청 인증/무결성 체인
 
 적용 대상
-- `llm-proxy`: `/api/agent`, `/api/agents`, `/api/search`, Google Calendar 내부 조회 엔드포인트
+- `llm-proxy`: `/api/agent`, `/api/agents`, `/api/search`, `/api/orchestration/events`, Google Calendar 내부 조회 엔드포인트
 
 필수 헤더
 - `x-internal-token`
@@ -50,6 +50,7 @@ flowchart LR
 
 이 순서의 이유
 - 서명 검증 전에 nonce를 저장하면 무효 요청으로 nonce cache를 오염시켜 DoS 표면이 커집니다.
+- 시크릿이 없을 때 기본값으로 열리면 내부 API가 예측 가능한 값으로 노출되므로, 현재 구현은 시크릿 누락 시 `503`으로 fail-closed 합니다.
 
 ## 4) Telegram 보안 통제
 - bridge secret: `TELEGRAM_WEBHOOK_SECRET`
@@ -88,6 +89,7 @@ flowchart LR
 - `cap_drop: [ALL]`
 - `security_opt: ["no-new-privileges:true"]`
 - `tmpfs` 사용
+- `n8n`: `NODE_FUNCTION_ALLOW_BUILTIN=crypto`로 내부 서명 생성만 허용
 
 네트워크
 - `internal`: 내부 통신 전용
@@ -113,6 +115,7 @@ flowchart LR
 |---|---|---|
 | 내부 요청 위조 | token + HMAC + timestamp + nonce | `proxy/app/security.py` |
 | replay 공격 | nonce TTL + 재사용 차단 | `proxy/app/security.py` |
+| 내부 이벤트 위조 | `/api/orchestration/events` internal auth 필수 | `proxy/app/main.py`, `scripts/runtime/internal-api-request.sh` |
 | Telegram 오용 | secret + allowlist + action allowlist + approval queue | `proxy/app/main.py`, `proxy/app/telegram_bridge.py` |
 | poller 유실 은닉 | dead-letter 기록 + offset 분리 | `proxy/app/telegram_poller.py` |
 | prompt injection | 패턴 제거 + inert data contract | `n8n/workflows/*.json`, `proxy/app/search_client.py` |
@@ -120,6 +123,7 @@ flowchart LR
 | Tavily API base 오염 | https + allowlisted host 강제 | `proxy/app/search_client.py` |
 | 과권한 컨테이너 | read_only/cap_drop/no-new-privileges | `docker-compose.yml` |
 | user vault 오염 | Clio-only write + runtime/support 분리 | `agent/main.py`, `shared_data/*` |
+| Clio 승인 경로의 과도한 쓰기 | `obsidian_vault` subtree로 write boundary 고정 | `proxy/app/orch_store.py` |
 | host secret 평문 노출 | Keychain/1Password ref + compose wrapper | `scripts/runtime/*.sh` |
 
 ## 10) 현재 남은 보안 리스크

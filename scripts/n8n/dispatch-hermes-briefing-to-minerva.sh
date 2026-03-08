@@ -3,6 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/load-env.sh
+
+ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env.local}"
+load_runtime_env "$ENV_FILE"
 
 SOURCE_JSON="${1:-/tmp/hermes_first.json}"
 API_PORT="${API_PORT:-8001}"
@@ -49,12 +53,7 @@ payload = {
 print(json.dumps(payload, ensure_ascii=False))
 PY
 
-status="$(
-  curl -sS -o /tmp/hermes_orchestration_result.json -w '%{http_code}' \
-    -X POST "$ORCH_URL" \
-    -H 'content-type: application/json' \
-    -d @/tmp/hermes_orchestration_payload.json || true
-)"
+status="$(bash scripts/runtime/internal-api-request.sh POST "$ORCH_URL" /tmp/hermes_orchestration_result.json /tmp/hermes_orchestration_payload.json || true)"
 
 if [[ "$status" != "200" ]]; then
   echo "[dispatch-hermes] failed status=$status endpoint=$ORCH_URL" >&2

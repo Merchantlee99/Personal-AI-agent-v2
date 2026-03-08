@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 source scripts/runtime/compose-env.sh
 
 ENV_FILE="${ENV_FILE:-.env.local}"
+RUNTIME_DRIFT_ENSURE_UP="${RUNTIME_DRIFT_ENSURE_UP:-true}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[runtime-drift] env file missing: $ENV_FILE" >&2
@@ -54,8 +55,12 @@ wait_for_n8n_cli() {
   return 1
 }
 
-echo "[runtime-drift] ensure llm-proxy + n8n are running"
-compose_cmd up -d llm-proxy n8n >/dev/null
+if [[ "$RUNTIME_DRIFT_ENSURE_UP" == "true" ]]; then
+  echo "[runtime-drift] ensure llm-proxy + n8n are running"
+  compose_cmd up -d llm-proxy n8n >/dev/null
+else
+  echo "[runtime-drift] read-only mode: expect llm-proxy + n8n already running"
+fi
 wait_for_n8n_cli
 
 compare_env nanoclaw-llm-proxy MINERVA_BRIEFING_TIMEZONE "Asia/Seoul"

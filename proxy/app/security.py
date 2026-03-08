@@ -93,14 +93,24 @@ def _verify_signature(secret: str, timestamp: str, nonce: str, body: bytes, rece
     return hmac.compare_digest(expected, received)
 
 
+def _read_required_internal_secret(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Internal auth misconfigured: {name} is not set",
+        )
+    return value
+
+
 async def verify_internal_request(request: Request) -> None:
     token = request.headers.get("x-internal-token", "")
     timestamp = request.headers.get("x-timestamp", "")
     nonce = request.headers.get("x-nonce", "")
     signature = request.headers.get("x-signature", "")
 
-    expected_token = os.getenv("INTERNAL_API_TOKEN", "change-me-in-env")
-    signing_secret = os.getenv("INTERNAL_SIGNING_SECRET", "change-signing-secret")
+    expected_token = _read_required_internal_secret("INTERNAL_API_TOKEN")
+    signing_secret = _read_required_internal_secret("INTERNAL_SIGNING_SECRET")
 
     if not hmac.compare_digest(token, expected_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

@@ -468,6 +468,106 @@ class ClioClaimReviewTests(unittest.TestCase):
                 third = orch_store.list_new_clio_note_suggestion_alerts(limit=10)
                 self.assertEqual(len(third), 1)
 
+    def test_confirm_clio_claim_review_rejects_non_vault_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory_dir = root / "shared_memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+            rogue_file = root / "shared_memory" / "rogue.json"
+            rogue_file.write_text("{}", encoding="utf-8")
+
+            (memory_dir / "clio_claim_review_queue.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "updatedAt": "2026-03-08T00:00:00Z",
+                        "items": [
+                            {
+                                "id": "review-bad-path",
+                                "status": "pending_user_review",
+                                "title": "bad path",
+                                "topicKey": "bad-path",
+                                "vaultFile": "shared_memory/rogue.json",
+                                "requestedAt": "2026-03-08T00:00:00Z",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (memory_dir / "clio_knowledge_memory.json").write_text(
+                json.dumps({"schemaVersion": 1, "updatedAt": "2026-03-08T00:00:00Z", "recentNotes": []}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(orch_store, "ROOT", root),
+                patch.object(orch_store, "MEMORY_DIR", memory_dir),
+                patch.object(orch_store, "CLIO_CLAIM_REVIEW_QUEUE_FILE", memory_dir / "clio_claim_review_queue.json"),
+                patch.object(orch_store, "CLIO_KNOWLEDGE_MEMORY_FILE", memory_dir / "clio_knowledge_memory.json"),
+            ):
+                updated = orch_store.confirm_clio_claim_review("review-bad-path", "8241238117")
+
+            self.assertIsNone(updated)
+            self.assertEqual(rogue_file.read_text(encoding="utf-8"), "{}")
+
+    def test_apply_clio_note_suggestion_rejects_non_vault_update_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory_dir = root / "shared_memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+            draft_file = "obsidian_vault/01-Knowledge/새 PM 루프 노트.md"
+            draft_path = root / draft_file
+            draft_path.parent.mkdir(parents=True, exist_ok=True)
+            draft_path.write_text("draft", encoding="utf-8")
+            rogue_target = root / "shared_memory" / "rogue.md"
+            rogue_target.write_text("rogue", encoding="utf-8")
+
+            (memory_dir / "clio_knowledge_memory.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "updatedAt": "2026-03-08T00:00:00Z",
+                        "recentNotes": [
+                            {
+                                "title": "새 PM 루프 노트",
+                                "type": "knowledge",
+                                "folder": "01-Knowledge",
+                                "templateName": "tpl-knowledge.md",
+                                "vaultFile": draft_file,
+                                "draftState": "draft",
+                                "claimReviewRequired": False,
+                                "claimReviewId": "",
+                                "noteAction": "update_candidate",
+                                "updateTarget": "[[rogue]]",
+                                "updateTargetPath": "shared_memory/rogue.md",
+                                "mergeCandidates": [],
+                                "mergeCandidatePaths": [],
+                                "suggestionState": "pending",
+                                "updatedAt": "2026-03-08T00:00:00Z",
+                            }
+                        ],
+                        "dedupeCandidates": [],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(orch_store, "ROOT", root),
+                patch.object(orch_store, "MEMORY_DIR", memory_dir),
+                patch.object(orch_store, "CLIO_KNOWLEDGE_MEMORY_FILE", memory_dir / "clio_knowledge_memory.json"),
+            ):
+                suggestion_id = orch_store._make_clio_note_suggestion_id(draft_file)
+                applied = orch_store.apply_clio_note_suggestion(suggestion_id, "8241238117")
+
+            self.assertIsNone(applied)
+            self.assertEqual(rogue_target.read_text(encoding="utf-8"), "rogue")
+
 
 if __name__ == "__main__":
     unittest.main()

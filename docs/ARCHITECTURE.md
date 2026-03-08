@@ -64,7 +64,8 @@ flowchart LR
   CHAT --> PX
   PX --> LLM["Gemini / Anthropic"]
 
-  N8N --> ORCH
+  N8N --> SIGN["signed internal request"]
+  SIGN --> ORCH
   ORCH --> TGAPI["Telegram sendMessage"]
   TGCB --> TGAPI
 
@@ -80,6 +81,15 @@ flowchart LR
   TGCB --> MEM
   GCAL --> ORCH
 ```
+
+내부 이벤트 경계
+- `n8n -> /api/orchestration/events`는 내부 인증 헤더를 반드시 거칩니다.
+- 필수 헤더:
+  - `x-internal-token`
+  - `x-timestamp`
+  - `x-nonce`
+  - `x-signature`
+- 시크릿이 없으면 기본값으로 열리지 않고 fail-closed로 거부합니다.
 
 ## 3) 저장 경계
 
@@ -206,7 +216,8 @@ sequenceDiagram
 | Telegram polling bridge | `proxy/app/telegram_poller.py` |
 | Minerva prompt/톤/모델 라우팅 | `proxy/app/llm_client.py`, `config/personas.json` |
 | 정책 엔진(임계값/쿨다운/다이제스트) | `proxy/app/orch_policy.py` |
-| 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py` |
+| 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
+| 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 메모리/승인 큐 저장소 | `proxy/app/orch_store.py` |
 | Google Calendar read-only 통합 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
 | Clio template-driven note 생성 | `agent/main.py` |
@@ -218,3 +229,17 @@ sequenceDiagram
 - NotebookLM 실사용 검증 완료
 
 이 항목들은 [IMPLEMENTATION_COVERAGE](IMPLEMENTATION_COVERAGE.md)에서 추적합니다.
+
+## 8) 현재 구조적 리스크
+즉시 운영을 막는 수준은 아니지만, 다음 3개는 유지보수 리스크입니다.
+
+1. `proxy/app/main.py`
+- Telegram webhook, chat, orchestration, calendar, approval 로직이 한 파일에 큼
+
+2. `proxy/app/orch_store.py`
+- memory, review queue, suggestion queue, vault state update가 한 파일에 큼
+
+3. `agent/main.py`
+- Clio 분류, 템플릿 렌더, 파일 라우팅, verified payload 생성이 한 파일에 큼
+
+즉, 현재 아키텍처는 보안 경계는 강화됐지만 애플리케이션 코드 레벨에서는 대형 모듈 분리가 다음 리팩터링 과제입니다.

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 source scripts/runtime/load-env.sh
 
 ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env.local}"
@@ -29,10 +30,19 @@ run_step() {
   fi
 }
 
-echo "[morning-preflight] ensure runtime is up"
-if ! bash scripts/runtime/compose.sh up -d llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null; then
-  fail_step "runtime_up" "docker compose up failed" "bash scripts/runtime/compose.sh logs llm-proxy --tail=120"
-fi
+require_running_service() {
+  local service="$1"
+  local container="$2"
+  if ! compose_cmd ps --services --status running | grep -qx "$service"; then
+    fail_step "runtime_up" "${container} is not running" "bash scripts/runtime/compose.sh up -d ${service}"
+  fi
+}
+
+echo "[morning-preflight] verify runtime is already up"
+require_running_service "llm-proxy" "nanoclaw-llm-proxy"
+require_running_service "telegram-poller" "nanoclaw-telegram-poller"
+require_running_service "nanoclaw-agent" "nanoclaw-agent"
+require_running_service "n8n" "nanoclaw-n8n"
 
 echo "[morning-preflight] step=proxy_health"
 HEALTH_STATUS="000"
@@ -61,26 +71,26 @@ fi
 
 run_step \
   "hermes_schedule" \
-  "Hermes daily briefing schedule or dispatch path failed" \
-  "bash scripts/n8n/bootstrap-hermes-daily-briefing.sh && bash scripts/verify/check-hermes-schedule-minerva.sh" \
-  bash scripts/verify/check-hermes-schedule-minerva.sh
+  "Hermes daily briefing active schedule drift detected" \
+  "bash scripts/n8n/bootstrap-hermes-daily-briefing.sh && bash scripts/verify/check-hermes-active-schedule.sh" \
+  bash scripts/verify/check-hermes-active-schedule.sh
 
 run_step \
   "calendar_attach" \
-  "morning calendar attach path failed" \
-  "bash scripts/verify/check-morning-calendar-attach.sh && inspect Google Calendar token/status" \
-  bash scripts/verify/check-morning-calendar-attach.sh
+  "Google Calendar status is not healthy" \
+  "MORNING_GCAL_ATTACH_MODE=dispatch bash scripts/verify/check-morning-calendar-attach.sh && inspect Google Calendar token/status" \
+  env MORNING_GCAL_ATTACH_MODE=status bash scripts/verify/check-morning-calendar-attach.sh
 
 run_step \
-  "telegram_text" \
-  "Telegram Minerva text path failed" \
+  "telegram_runtime" \
+  "Telegram runtime status is unhealthy" \
   "bash scripts/verify/check-telegram-minerva-chat.sh && inspect telegram-poller / llm-proxy logs" \
-  bash scripts/verify/check-telegram-minerva-chat.sh
+  bash scripts/verify/check-telegram-runtime-status.sh
 
 run_step \
   "runtime_drift" \
   "runtime drift detected between source and active runtime" \
   "bash scripts/verify/check-runtime-drift.sh && re-bootstrap drifted workflow or env" \
-  bash scripts/verify/check-runtime-drift.sh
+  env RUNTIME_DRIFT_ENSURE_UP=false bash scripts/verify/check-runtime-drift.sh
 
 echo "[morning-preflight] PASS"

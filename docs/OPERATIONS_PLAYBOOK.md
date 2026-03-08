@@ -13,6 +13,7 @@
 중요 사실
 - 현재 운영은 Telegram-only입니다. Next.js 프론트는 제거되었습니다.
 - API 진입점은 `llm-proxy:8000`(호스트 `127.0.0.1:8001`)입니다.
+- 내부 이벤트 입력(`/api/orchestration/events`)은 HMAC 서명 없이는 거부됩니다.
 - 사용자용 Obsidian vault는 [shared_data/obsidian_vault](/Users/isanginn/Workspace/Agent_Workspace/shared_data/obsidian_vault) 입니다.
 - runtime note는 [shared_data/runtime_agent_notes](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime_agent_notes) 에 저장됩니다.
 
@@ -35,6 +36,16 @@ curl -sS http://127.0.0.1:8001/api/runtime-metrics | jq '{ok,generatedAt}'
 일일 점검
 ```bash
 npm run verify:daily
+```
+
+브리핑 직전 read-only 사전 점검
+```bash
+npm run verify:morning:preflight
+```
+
+repair / E2E 점검
+```bash
+npm run verify:hermes:schedule
 ```
 
 수동 개별 점검
@@ -222,10 +233,10 @@ Clio note suggestion
 `npm run verify:morning:preflight`는 09:00 KST 브리핑 전에 아래를 확인합니다.
 1. runtime up
 2. `llm-proxy /health`
-3. Hermes schedule/dispatch
-4. morning calendar attach
-5. Telegram Minerva text path
-6. runtime drift
+3. active Hermes schedule(read-only)
+4. morning calendar attach 상태(read-only)
+5. Telegram poller runtime 상태(read-only)
+6. runtime drift(read-only)
 
 실패 시 출력 형식
 ```text
@@ -233,3 +244,7 @@ Clio note suggestion
 [morning-preflight] cause=...
 [morning-preflight] next_action=...
 ```
+
+원칙
+- `verify:morning:preflight`는 점검만 수행합니다.
+- bootstrap/restart/import가 필요한 repair는 별도 명령으로 실행합니다.

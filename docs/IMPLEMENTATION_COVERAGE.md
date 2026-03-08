@@ -5,6 +5,8 @@
 ## 1) 핵심 결론
 - Next.js 프론트 경로를 제거하고 `llm-proxy` 단일 진입 구조로 정리 완료
 - Telegram polling, internal HMAC chain, 최소권한 컨테이너, Tavily allowlist 적용 완료
+- `/api/orchestration/events` internal auth 강제, fail-closed secret 로드, Clio vault write boundary 고정 완료
+- morning preflight를 read-only 점검으로 분리 완료
 - Minerva working memory, Clio/Hermes role memory, 승인 큐, runtime drift audit 구현 완료
 - Clio v2는 template-driven Obsidian note 생성, review/suggestion/approval까지 구현 완료
 - 남은 과제는 NotebookLM 실연동 검증, Aegis 실배포, 실제 7일 연속 morning briefing 운영 데이터 확보
@@ -16,6 +18,7 @@
 | Canonical Agent ID 단일화 | 완료 | `config/agents.json`, `proxy/app/agents.py`, `agent/main.py` |
 | 역할 경계(미네르바/클리오/헤르메스) | 완료 | `proxy/app/main.py`, `config/personas.json` |
 | LLM 단일 게이트 + 내부 인증 체인 | 완료 | `proxy/app/main.py`, `proxy/app/security.py` |
+| `/api/orchestration/events` signed internal gate | 완료 | `proxy/app/main.py`, `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 모델 라우팅 + 429 fallback + 사용량 기록 | 완료 | `proxy/app/main.py`, `proxy/app/llm_client.py` |
 | Hermes P0/P1/P2 스케줄 수집 | 완료 | `n8n/workflows/hermes-daily-briefing.json` |
 | Tavily 웹검색 + 안전필터 | 완료 | `n8n/workflows/hermes-web-search-tavily.json`, `proxy/app/search_client.py` |
@@ -30,6 +33,7 @@
 | Clio template-driven Obsidian/verified_inbox 파이프라인 | 완료 | `agent/main.py`, `shared_data/verified_inbox` |
 | Clio review/suggestion/approval | 완료 | `proxy/app/main.py`, `proxy/app/orch_store.py`, `scripts/verify/check-clio-*.sh` |
 | user-facing vault / runtime note 분리 | 완료 | `agent/main.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
+| Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_store.py` |
 | 통합 운영 메트릭 API | 완료 | `proxy/app/main.py` (`/api/runtime-metrics`) |
 | GitHub Auto PR + Auto Merge | 완료(리포 설정 의존) | `.github/workflows/auto-pr-automerge.yml` |
 | NotebookLM 실운영 검증 | 부분완료 | `agent/main.py` dispatch 구현, 운영 endpoint 검증 미완료 |
@@ -57,6 +61,7 @@ flowchart LR
 2. Clio가 만든 `article/paper`의 실사용 품질은 real input 기준 추가 검증 필요
 3. polling dead-letter는 완화됐지만 운영상 메시지 유실을 100% 제거한 것은 아님
 4. NotebookLM은 여전히 비활성 운영 상태
+5. `proxy/app/main.py`, `proxy/app/orch_store.py`, `agent/main.py`는 여전히 대형 모듈이라 리팩터링 여지 큼
 
 ## 5) 지금 당장 더 필요한 것보다 뒤로 미룬 것
 - Aegis runtime 도입

@@ -962,7 +962,10 @@ def search_data(
 
 
 @app.post("/api/orchestration/events")
-async def orchestration_events(request: Request) -> JSONResponse:
+async def orchestration_events(
+    request: Request,
+    _: Annotated[None, Depends(verify_internal_request)],
+) -> JSONResponse:
     raw_body = await request.json()
     contract = validate_event_contract_v1(
         raw_body,

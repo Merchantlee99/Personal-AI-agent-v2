@@ -54,24 +54,22 @@ print(status); print(raw.decode("utf-8", errors="ignore"))' "$secret" < "$payloa
 
 echo "[telegram-inline] create source event"
 rm -f /tmp/telegram_inline_event.json
+cat >/tmp/telegram_inline_event.payload.json <<JSON
+{
+  "schemaVersion": 1,
+  "agentId": "hermes",
+  "topicKey": "${TOPIC_KEY}",
+  "title": "텔레그램 인라인 버튼 리허설",
+  "summary": "clio_save/hermes_deep_dive/minerva_insight 동작을 점검합니다.",
+  "priority": "low",
+  "confidence": 0.25,
+  "tags": ["rehearsal", "telegram"],
+  "sourceRefs": [{"title": "Rehearsal Source", "url": "https://example.com/rehearsal"}]
+}
+JSON
 event_status="000"
 for _ in 1 2 3 4 5; do
-  event_status="$(
-    curl -sS -o /tmp/telegram_inline_event.json -w '%{http_code}' \
-      -X POST "${BASE_URL}/api/orchestration/events" \
-      -H 'content-type: application/json' \
-      -d "{
-        \"schemaVersion\":1,
-        \"agentId\":\"hermes\",
-        \"topicKey\":\"${TOPIC_KEY}\",
-        \"title\":\"텔레그램 인라인 버튼 리허설\",
-        \"summary\":\"clio_save/hermes_deep_dive/minerva_insight 동작을 점검합니다.\",
-        \"priority\":\"low\",
-        \"confidence\":0.25,
-        \"tags\":[\"rehearsal\",\"telegram\"],
-        \"sourceRefs\":[{\"title\":\"Rehearsal Source\",\"url\":\"https://example.com/rehearsal\"}]
-      }" || true
-  )"
+  event_status="$(bash "${REPO_ROOT}/scripts/runtime/internal-api-request.sh" POST "${BASE_URL}/api/orchestration/events" /tmp/telegram_inline_event.json /tmp/telegram_inline_event.payload.json || true)"
   if [[ "$event_status" == "200" ]]; then
     break
   fi

@@ -628,14 +628,18 @@ def mark_clio_alert_sent(kind: str, item_id: str, *, fingerprint: str | None = N
     _write_clio_alert_state(state)
 
 
-def _safe_shared_path(relative_or_absolute: str) -> Path | None:
+def _vault_root() -> Path:
+    return (ROOT / "obsidian_vault").resolve()
+
+
+def _safe_vault_path(relative_or_absolute: str) -> Path | None:
     raw = _sanitize_text(relative_or_absolute, 260)
     if not raw:
         return None
     candidate = Path(raw)
     resolved = candidate.resolve() if candidate.is_absolute() else (ROOT / candidate).resolve()
     try:
-        resolved.relative_to(ROOT.resolve())
+        resolved.relative_to(_vault_root())
     except ValueError:
         return None
     return resolved
@@ -662,7 +666,7 @@ def _update_frontmatter_scalar(markdown: str, key: str, value: str) -> str:
 
 
 def _apply_clio_note_draft_state(vault_file: str, draft_state: str) -> str | None:
-    note_path = _safe_shared_path(vault_file)
+    note_path = _safe_vault_path(vault_file)
     if not note_path or not note_path.is_file():
         return None
     markdown = note_path.read_text(encoding="utf-8")
@@ -850,7 +854,7 @@ def _extract_diff_candidate_lines(markdown: str, *, limit: int = 3) -> list[str]
 
 
 def _build_clio_note_diff_summary(suggestion: dict[str, Any]) -> list[str]:
-    draft_path = _safe_shared_path(str(suggestion.get("vaultFile") or ""))
+    draft_path = _safe_vault_path(str(suggestion.get("vaultFile") or ""))
     if not draft_path or not draft_path.is_file():
         return []
 
@@ -859,7 +863,7 @@ def _build_clio_note_diff_summary(suggestion: dict[str, Any]) -> list[str]:
         return []
 
     if suggestion.get("noteAction") == "update_candidate":
-        target_path = _safe_shared_path(str(suggestion.get("updateTargetPath") or ""))
+        target_path = _safe_vault_path(str(suggestion.get("updateTargetPath") or ""))
         target_body = target_path.read_text(encoding="utf-8") if target_path and target_path.is_file() else ""
         target_text = _sanitize_text(_strip_frontmatter(target_body), 5000)
         summary: list[str] = []
@@ -974,7 +978,7 @@ def apply_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[s
     suggestion = get_clio_note_suggestion(suggestion_id)
     if not suggestion:
         return None
-    draft_path = _safe_shared_path(str(suggestion.get("vaultFile") or ""))
+    draft_path = _safe_vault_path(str(suggestion.get("vaultFile") or ""))
     if not draft_path or not draft_path.is_file():
         return None
 
@@ -985,7 +989,7 @@ def apply_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[s
     applied_paths: list[str] = []
 
     if suggestion.get("noteAction") == "update_candidate":
-        target_path = _safe_shared_path(str(suggestion.get("updateTargetPath") or ""))
+        target_path = _safe_vault_path(str(suggestion.get("updateTargetPath") or ""))
         if not target_path:
             return None
         ok = _append_note_annotation(
@@ -1005,7 +1009,7 @@ def apply_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[s
     else:
         candidate_paths = []
         for raw in suggestion.get("mergeCandidatePaths") or []:
-            candidate_path = _safe_shared_path(str(raw))
+            candidate_path = _safe_vault_path(str(raw))
             if candidate_path and candidate_path.is_file():
                 candidate_paths.append(candidate_path)
         if not candidate_paths:

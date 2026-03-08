@@ -84,6 +84,8 @@ print(f"[security-orch] OK HERMES_AUTO_CLIO_SAVE_MIN_IMPACT={value}")
 PY
 
 require_non_empty ORCHESTRATION_EVENT_URL
+require_non_empty INTERNAL_API_TOKEN
+require_non_empty INTERNAL_SIGNING_SECRET
 
 SEARCH_PROVIDER="$(printf '%s' "$(get_env SEARCH_PROVIDER)" | tr '[:upper:]' '[:lower:]' | xargs)"
 if [[ -z "$SEARCH_PROVIDER" ]]; then
@@ -133,6 +135,7 @@ checks = [
             ("Collect P0 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
             ("Collect P1 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
             ("Collect P2 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
+            ("Build API Response", ("INTERNAL_API_TOKEN", "INTERNAL_SIGNING_SECRET", "createHmac", "x-internal-token")),
         ],
     },
     {
@@ -220,6 +223,12 @@ container_env_is_set() {
   [[ -n "$value" ]]
 }
 
+container_env_value() {
+  local container="$1"
+  local key="$2"
+  docker exec "$container" sh -lc "printenv '$key' 2>/dev/null || true" 2>/dev/null || true
+}
+
 assert_container_env_present() {
   local container="$1"
   local key="$2"
@@ -264,6 +273,16 @@ if compose_cmd ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
     assert_container_env_empty nanoclaw-agent TAVILY_API_KEY
 
     assert_container_env_present nanoclaw-n8n ORCHESTRATION_EVENT_URL
+    assert_container_env_present nanoclaw-n8n INTERNAL_API_TOKEN
+    assert_container_env_present nanoclaw-n8n INTERNAL_SIGNING_SECRET
+    assert_container_env_present nanoclaw-n8n NODE_FUNCTION_ALLOW_BUILTIN
+    NODE_BUILTINS="$(container_env_value nanoclaw-n8n NODE_FUNCTION_ALLOW_BUILTIN)"
+    if [[ "$NODE_BUILTINS" != *"crypto"* ]]; then
+      echo "[security-orch] FAIL nanoclaw-n8n NODE_FUNCTION_ALLOW_BUILTIN must include crypto" >&2
+      FAIL=1
+    else
+      echo "[security-orch] OK nanoclaw-n8n NODE_FUNCTION_ALLOW_BUILTIN includes crypto"
+    fi
     assert_container_env_present nanoclaw-n8n TAVILY_API_KEY
     assert_container_env_empty nanoclaw-n8n TELEGRAM_BOT_TOKEN
     assert_container_env_empty nanoclaw-n8n GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
