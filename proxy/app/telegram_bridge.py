@@ -188,11 +188,12 @@ def render_approval_stage2_text(approval: dict[str, Any]) -> str:
     )
 
 
-def render_clio_claim_review_text(review: dict[str, Any], *, pending_count: int) -> str:
+def render_clio_claim_review_text(review: dict[str, Any], *, pending_count: int, mode: str = "queue") -> str:
+    header = "🧠 Clio knowledge review" if mode == "queue" else "🧠 Clio 지식 검토 알림"
     return trim_telegram_text(
         "\n".join(
             [
-                "🧠 Clio knowledge review",
+                header,
                 "",
                 f"- 제목: {short_text(str(review.get('title', '')), 72)}",
                 f"- 주제: {short_text(str(review.get('topicKey', '')), 70)}",
@@ -208,20 +209,22 @@ def render_clio_claim_review_text(review: dict[str, Any], *, pending_count: int)
                     else "- MOC 후보: 없음"
                 ),
                 f"- 대기 건수: {pending_count}",
-                "- 이 노트는 현재 draft 상태입니다. 승인 시 confirmed로 승격됩니다.",
+                "- 이 노트는 현재 draft 상태입니다. 승인 시 confirmed로 승격됩니다." if mode == "queue" else "- 새 knowledge claim draft가 대기열에 들어왔습니다. 검토 후 승인 여부를 정하세요.",
             ]
         ),
         1400,
     )
 
 
-def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_count: int) -> str:
+def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_count: int, mode: str = "queue") -> str:
     action = clean_line(str(suggestion.get("noteAction") or "create"))
     target = clean_line(str(suggestion.get("updateTarget") or ""))
     merge_candidates = suggestion.get("mergeCandidates") if isinstance(suggestion.get("mergeCandidates"), list) else []
     diff_summary = suggestion.get("diffSummary") if isinstance(suggestion.get("diffSummary"), list) else []
+    suggestion_reasons = suggestion.get("suggestionReasons") if isinstance(suggestion.get("suggestionReasons"), list) else []
+    suggestion_score = suggestion.get("suggestionScore")
     lines = [
-        "🧩 Clio note suggestion",
+        "🧩 Clio note suggestion" if mode == "queue" else "🧩 Clio 노트 연결 제안 알림",
         "",
         f"- 제목: {short_text(str(suggestion.get('title', '')), 72)}",
         f"- 제안 유형: {action}",
@@ -233,6 +236,12 @@ def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_coun
         lines.append(f"- 병합 후보: {', '.join(merge_candidates[:3])}")
     else:
         lines.append("- 병합 후보: 없음")
+    if isinstance(suggestion_score, (int, float)):
+        lines.append(f"- 제안 점수: {float(suggestion_score):.2f}")
+    if suggestion_reasons:
+        lines.append("- 제안 근거:")
+        for item in suggestion_reasons[:3]:
+            lines.append(f"  • {short_text(str(item), 96)}")
     if diff_summary:
         lines.append("- 변경 요약:")
         for item in diff_summary[:3]:
@@ -240,7 +249,11 @@ def render_clio_note_suggestion_text(suggestion: dict[str, Any], *, pending_coun
     lines.extend(
         [
             f"- 대기 건수: {pending_count}",
-            "- 승인 시 기존 노트에는 안전한 링크/주석만 추가하고, draft note는 review 상태로 전환됩니다.",
+            (
+                "- 승인 시 기존 노트에는 안전한 링크/주석만 추가하고, draft note는 review 상태로 전환됩니다."
+                if mode == "queue"
+                else "- 새 note를 만들지 않고 기존 지식과 연결·업데이트할지 확인이 필요합니다."
+            ),
         ]
     )
     return trim_telegram_text("\n".join(lines), 1400)

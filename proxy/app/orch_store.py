@@ -24,6 +24,7 @@ MINERVA_WORKING_MEMORY_FILE = MEMORY_DIR / "minerva_working_memory.json"
 CLIO_KNOWLEDGE_MEMORY_FILE = MEMORY_DIR / "clio_knowledge_memory.json"
 CLIO_CLAIM_REVIEW_QUEUE_FILE = MEMORY_DIR / "clio_claim_review_queue.json"
 HERMES_EVIDENCE_MEMORY_FILE = MEMORY_DIR / "hermes_evidence_memory.json"
+CLIO_ALERT_STATE_FILE = MEMORY_DIR / "clio_alert_state.json"
 
 MEMORY_MARKDOWN_MAX_BYTES = max(32000, int(float(os.getenv("MEMORY_MD_MAX_BYTES", "280000") or "280000")))
 MEMORY_MARKDOWN_HEADER = (
@@ -42,6 +43,9 @@ MEMORY_SKIP_TAGS = {
 APPROVAL_TTL_SEC = max(60, int(float(os.getenv("TELEGRAM_APPROVAL_TTL_SEC", "300") or "300")))
 APPROVAL_RETENTION_HOURS = max(
     1, int(float(os.getenv("TELEGRAM_APPROVAL_RETENTION_HOURS", "72") or "72"))
+)
+CLIO_SUGGESTION_DISMISS_COOLDOWN_SEC = max(
+    300, int(float(os.getenv("CLIO_SUGGESTION_DISMISS_COOLDOWN_SEC", "43200") or "43200"))
 )
 
 
@@ -545,6 +549,85 @@ def list_pending_clio_claim_reviews(limit: int = 8) -> list[dict[str, Any]]:
     return items[: max(1, limit)]
 
 
+def _default_clio_alert_state() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "claimReviewAlerts": {},
+        "noteSuggestionAlerts": {},
+    }
+
+
+def _read_clio_alert_state() -> dict[str, Any]:
+    payload = _read_json_file(CLIO_ALERT_STATE_FILE, _default_clio_alert_state())
+    if not isinstance(payload, dict):
+        return _default_clio_alert_state()
+    normalized = _default_clio_alert_state()
+    normalized["updatedAt"] = _sanitize_text(payload.get("updatedAt"), 64) or normalized["updatedAt"]
+    for key in ("claimReviewAlerts", "noteSuggestionAlerts"):
+        source = payload.get(key)
+        if not isinstance(source, dict):
+            continue
+        normalized[key] = {
+            _sanitize_text(item_key, 64): {
+                "fingerprint": _sanitize_text(item_value.get("fingerprint"), 64),
+                "sentAt": _sanitize_text(item_value.get("sentAt"), 64),
+            }
+            for item_key, item_value in source.items()
+            if _sanitize_text(item_key, 64) and isinstance(item_value, dict)
+        }
+    return normalized
+
+
+def _write_clio_alert_state(state: dict[str, Any]) -> None:
+    state["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _write_json_file(CLIO_ALERT_STATE_FILE, state)
+
+
+def list_new_clio_claim_review_alerts(limit: int = 4) -> list[dict[str, Any]]:
+    state = _read_clio_alert_state()
+    seen = state.get("claimReviewAlerts") if isinstance(state.get("claimReviewAlerts"), dict) else {}
+    new_items: list[dict[str, Any]] = []
+    for review in list_pending_clio_claim_reviews(limit=50):
+        review_id = _sanitize_text(review.get("id"), 32)
+        if not review_id or review_id in seen:
+            continue
+        new_items.append(review)
+        if len(new_items) >= max(1, limit):
+            break
+    return new_items
+
+
+def list_new_clio_note_suggestion_alerts(limit: int = 4) -> list[dict[str, Any]]:
+    state = _read_clio_alert_state()
+    seen = state.get("noteSuggestionAlerts") if isinstance(state.get("noteSuggestionAlerts"), dict) else {}
+    new_items: list[dict[str, Any]] = []
+    for suggestion in list_pending_clio_note_suggestions(limit=50):
+        suggestion_id = _sanitize_text(suggestion.get("id"), 32)
+        if not suggestion_id:
+            continue
+        fingerprint = _sanitize_text(suggestion.get("suggestionFingerprint"), 64)
+        existing = seen.get(suggestion_id) if isinstance(seen.get(suggestion_id), dict) else {}
+        if _sanitize_text(existing.get("fingerprint"), 64) == fingerprint:
+            continue
+        new_items.append(suggestion)
+        if len(new_items) >= max(1, limit):
+            break
+    return new_items
+
+
+def mark_clio_alert_sent(kind: str, item_id: str, *, fingerprint: str | None = None) -> None:
+    state = _read_clio_alert_state()
+    bucket_key = "claimReviewAlerts" if kind == "claim_review" else "noteSuggestionAlerts"
+    bucket = state.get(bucket_key) if isinstance(state.get(bucket_key), dict) else {}
+    bucket[_sanitize_text(item_id, 64)] = {
+        "fingerprint": _sanitize_text(fingerprint, 64),
+        "sentAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    state[bucket_key] = bucket
+    _write_clio_alert_state(state)
+
+
 def _safe_shared_path(relative_or_absolute: str) -> Path | None:
     raw = _sanitize_text(relative_or_absolute, 260)
     if not raw:
@@ -647,12 +730,25 @@ def _make_clio_note_suggestion_id(vault_file: str) -> str:
     return hashlib.sha256(str(vault_file).encode("utf-8")).hexdigest()[:12]
 
 
+def _make_clio_note_suggestion_fingerprint(item: dict[str, Any]) -> str:
+    payload = {
+        "title": _sanitize_text(item.get("title"), 160),
+        "noteAction": _sanitize_text(item.get("noteAction"), 40),
+        "updateTargetPath": _sanitize_text(item.get("updateTargetPath"), 260),
+        "mergeCandidatePaths": _normalize_string_list(item.get("mergeCandidatePaths"), limit=6, item_limit=260),
+        "relatedNotes": _normalize_string_list(item.get("relatedNotes"), limit=8, item_limit=120),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
 def _normalize_clio_note_suggestion(item: dict[str, Any]) -> dict[str, Any] | None:
     title = _sanitize_text(item.get("title"), 180)
     note_action = _sanitize_text(item.get("noteAction"), 40)
     vault_file = _sanitize_text(item.get("vaultFile"), 260)
     if not title or not vault_file or note_action not in {"update_candidate", "merge_candidate"}:
         return None
+    fingerprint = _sanitize_text(item.get("suggestionFingerprint"), 64) or _make_clio_note_suggestion_fingerprint(item)
     return {
         "id": _make_clio_note_suggestion_id(vault_file),
         "title": title,
@@ -666,9 +762,60 @@ def _normalize_clio_note_suggestion(item: dict[str, Any]) -> dict[str, Any] | No
         "mergeCandidatePaths": _normalize_string_list(item.get("mergeCandidatePaths"), limit=6, item_limit=260),
         "projectLinks": _normalize_string_list(item.get("projectLinks"), limit=6, item_limit=120),
         "mocCandidates": _normalize_string_list(item.get("mocCandidates"), limit=6, item_limit=120),
+        "suggestionScore": item.get("suggestionScore") if item.get("suggestionScore") not in {None, ""} else None,
+        "suggestionReasons": _normalize_string_list(item.get("suggestionReasons"), limit=4, item_limit=140),
         "suggestionState": _sanitize_text(item.get("suggestionState"), 32) or "pending",
+        "suggestionFingerprint": fingerprint,
+        "dismissedAt": _sanitize_text(item.get("dismissedAt"), 64),
+        "dismissedSuggestionFingerprint": _sanitize_text(item.get("dismissedSuggestionFingerprint"), 64),
+        "suggestionCooldownUntil": _sanitize_text(item.get("suggestionCooldownUntil"), 64),
         "updatedAt": _sanitize_text(item.get("updatedAt"), 64),
     }
+
+
+def _reactivate_clio_note_suggestion_if_due(suggestion_id: str, item: dict[str, Any]) -> bool:
+    state = _sanitize_text(item.get("suggestionState"), 32) or "pending"
+    if state != "dismissed":
+        return False
+
+    now = datetime.now(timezone.utc)
+    cooldown_until = _parse_iso_datetime(item.get("suggestionCooldownUntil"))
+    dismissed_at = _parse_iso_datetime(item.get("dismissedAt"))
+    current_fingerprint = _sanitize_text(item.get("suggestionFingerprint"), 64) or _make_clio_note_suggestion_fingerprint(item)
+    dismissed_fingerprint = _sanitize_text(item.get("dismissedSuggestionFingerprint"), 64)
+    updated_at = _parse_iso_datetime(item.get("updatedAt"))
+
+    if dismissed_fingerprint and current_fingerprint != dismissed_fingerprint:
+        _update_clio_note_suggestion_state(
+            suggestion_id,
+            suggestion_state="pending",
+            suggestion_fingerprint=current_fingerprint,
+            dismissed_at="",
+            dismissed_fingerprint="",
+            cooldown_until="",
+        )
+        return True
+    if dismissed_at and updated_at and updated_at > dismissed_at:
+        _update_clio_note_suggestion_state(
+            suggestion_id,
+            suggestion_state="pending",
+            suggestion_fingerprint=current_fingerprint,
+            dismissed_at="",
+            dismissed_fingerprint="",
+            cooldown_until="",
+        )
+        return True
+    if cooldown_until and now >= cooldown_until:
+        _update_clio_note_suggestion_state(
+            suggestion_id,
+            suggestion_state="pending",
+            suggestion_fingerprint=current_fingerprint,
+            dismissed_at="",
+            dismissed_fingerprint="",
+            cooldown_until="",
+        )
+        return True
+    return False
 
 
 def _strip_frontmatter(markdown: str) -> str:
@@ -744,6 +891,13 @@ def list_pending_clio_note_suggestions(limit: int = 8) -> list[dict[str, Any]]:
     for item in memory.get("recentNotes", []):
         if not isinstance(item, dict):
             continue
+        suggestion_id = _make_clio_note_suggestion_id(_sanitize_text(item.get("vaultFile"), 260))
+        if _reactivate_clio_note_suggestion_if_due(suggestion_id, item):
+            memory = get_clio_knowledge_memory()
+            for refreshed in memory.get("recentNotes", []):
+                if isinstance(refreshed, dict) and _make_clio_note_suggestion_id(_sanitize_text(refreshed.get("vaultFile"), 260)) == suggestion_id:
+                    item = refreshed
+                    break
         suggestion = _normalize_clio_note_suggestion(item)
         if not suggestion:
             continue
@@ -763,7 +917,17 @@ def get_clio_note_suggestion(suggestion_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _update_clio_note_suggestion_state(suggestion_id: str, *, suggestion_state: str, draft_state: str | None = None) -> dict[str, Any] | None:
+def _update_clio_note_suggestion_state(
+    suggestion_id: str,
+    *,
+    suggestion_state: str,
+    draft_state: str | None = None,
+    suggestion_fingerprint: str | None = None,
+    dismissed_at: str | None = None,
+    dismissed_fingerprint: str | None = None,
+    cooldown_until: str | None = None,
+    updated_at: str | None = None,
+) -> dict[str, Any] | None:
     memory = get_clio_knowledge_memory()
     changed = False
     updated_note: dict[str, Any] | None = None
@@ -776,7 +940,15 @@ def _update_clio_note_suggestion_state(suggestion_id: str, *, suggestion_state: 
         item["suggestionState"] = suggestion_state
         if draft_state:
             item["draftState"] = draft_state
-        item["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if suggestion_fingerprint is not None:
+            item["suggestionFingerprint"] = suggestion_fingerprint
+        if dismissed_at is not None:
+            item["dismissedAt"] = dismissed_at
+        if dismissed_fingerprint is not None:
+            item["dismissedSuggestionFingerprint"] = dismissed_fingerprint
+        if cooldown_until is not None:
+            item["suggestionCooldownUntil"] = cooldown_until
+        item["updatedAt"] = _sanitize_text(updated_at, 64) or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         updated_note = dict(item)
         changed = True
         break
@@ -860,7 +1032,15 @@ def apply_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict[s
         )
 
     _apply_clio_note_draft_state(str(suggestion.get("vaultFile") or ""), "review")
-    _update_clio_note_suggestion_state(suggestion_id, suggestion_state="approved", draft_state="review")
+    _update_clio_note_suggestion_state(
+        suggestion_id,
+        suggestion_state="approved",
+        draft_state="review",
+        suggestion_fingerprint=str(suggestion.get("suggestionFingerprint") or ""),
+        dismissed_at="",
+        dismissed_fingerprint="",
+        cooldown_until="",
+    )
     return {
         **suggestion,
         "appliedAt": now_iso,
@@ -873,12 +1053,23 @@ def dismiss_clio_note_suggestion(suggestion_id: str, actor_user_id: str) -> dict
     suggestion = get_clio_note_suggestion(suggestion_id)
     if not suggestion:
         return None
-    updated = _update_clio_note_suggestion_state(suggestion_id, suggestion_state="dismissed")
+    dismissed_at = datetime.now(timezone.utc)
+    cooldown_until = dismissed_at + timedelta(seconds=CLIO_SUGGESTION_DISMISS_COOLDOWN_SEC)
+    updated = _update_clio_note_suggestion_state(
+        suggestion_id,
+        suggestion_state="dismissed",
+        suggestion_fingerprint=str(suggestion.get("suggestionFingerprint") or ""),
+        dismissed_at=dismissed_at.isoformat().replace("+00:00", "Z"),
+        dismissed_fingerprint=str(suggestion.get("suggestionFingerprint") or ""),
+        cooldown_until=cooldown_until.isoformat().replace("+00:00", "Z"),
+        updated_at=dismissed_at.isoformat().replace("+00:00", "Z"),
+    )
     if not updated:
         return None
     return {
         **suggestion,
-        "dismissedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "dismissedAt": dismissed_at.isoformat().replace("+00:00", "Z"),
+        "suggestionCooldownUntil": cooldown_until.isoformat().replace("+00:00", "Z"),
         "dismissedByUserId": actor_user_id,
     }
 
@@ -972,6 +1163,25 @@ def _sanitize_text(value: Any, limit: int = 240) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[: max(16, limit - 1)].rstrip()}…"
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    compact = _sanitize_text(value, 64)
+    if not compact:
+        return None
+    try:
+        return datetime.fromisoformat(compact.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _has_meaningful_value(value: Any) -> bool:
@@ -1254,7 +1464,13 @@ def normalize_clio_knowledge_memory(payload: dict[str, Any] | None) -> dict[str,
                 "updateTargetPath": _sanitize_text(item.get("updateTargetPath"), 260),
                 "mergeCandidates": _normalize_string_list(item.get("mergeCandidates"), limit=6, item_limit=120),
                 "mergeCandidatePaths": _normalize_string_list(item.get("mergeCandidatePaths"), limit=6, item_limit=260),
+                "suggestionScore": _safe_float(item.get("suggestionScore")),
+                "suggestionReasons": _normalize_string_list(item.get("suggestionReasons"), limit=4, item_limit=140),
                 "suggestionState": _sanitize_text(item.get("suggestionState"), 32),
+                "suggestionFingerprint": _sanitize_text(item.get("suggestionFingerprint"), 64),
+                "dismissedAt": _sanitize_text(item.get("dismissedAt"), 64),
+                "dismissedSuggestionFingerprint": _sanitize_text(item.get("dismissedSuggestionFingerprint"), 64),
+                "suggestionCooldownUntil": _sanitize_text(item.get("suggestionCooldownUntil"), 64),
                 "updatedAt": _sanitize_text(item.get("updatedAt"), 64),
             }
         )
@@ -1293,8 +1509,11 @@ def render_clio_knowledge_memory_context(memory: dict[str, Any] | None = None, *
     data = normalize_clio_knowledge_memory(memory if isinstance(memory, dict) else get_clio_knowledge_memory())
     lines = ["Clio knowledge memory"]
     pending_claim_reviews = len(list_pending_clio_claim_reviews(limit=200))
+    pending_suggestions = len(list_pending_clio_note_suggestions(limit=200))
     if pending_claim_reviews:
         lines.append(f"- Pending claim reviews: {pending_claim_reviews}")
+    if pending_suggestions:
+        lines.append(f"- Pending note suggestions: {pending_suggestions}")
     projects = _normalize_string_list(data.get("projects"), limit=8, item_limit=80)
     if projects:
         lines.append(f"- Registered projects: {', '.join(projects)}")
@@ -1304,7 +1523,17 @@ def render_clio_knowledge_memory_context(memory: dict[str, Any] | None = None, *
     recent_notes = data.get("recentNotes") if isinstance(data.get("recentNotes"), list) else []
     if recent_notes:
         lines.append("- Recent notes:")
-        for item in recent_notes[:5]:
+        prioritized: list[dict[str, Any]] = []
+        prioritized.extend(
+            [
+                item
+                for item in recent_notes
+                if isinstance(item, dict)
+                and (bool(item.get("claimReviewRequired")) or _sanitize_text(item.get("suggestionState"), 24) == "pending")
+            ]
+        )
+        prioritized.extend([item for item in recent_notes if isinstance(item, dict) and item not in prioritized])
+        for item in prioritized[:4]:
             if not isinstance(item, dict):
                 continue
             title = _sanitize_text(item.get("title"), 90)
@@ -1312,14 +1541,17 @@ def render_clio_knowledge_memory_context(memory: dict[str, Any] | None = None, *
             draft_state = _sanitize_text(item.get("draftState"), 24)
             note_action = _sanitize_text(item.get("noteAction"), 32)
             suggestion_state = _sanitize_text(item.get("suggestionState"), 24)
+            suggestion_score = item.get("suggestionScore")
             suffix = f" action={note_action}" if note_action else ""
             if suggestion_state:
                 suffix += f" suggestion={suggestion_state}"
+            if isinstance(suggestion_score, (int, float)):
+                suffix += f" score={float(suggestion_score):.2f}"
             lines.append(f"  - {title} [{note_type}] state={draft_state or 'draft'}{suffix}")
     dedupe_candidates = data.get("dedupeCandidates") if isinstance(data.get("dedupeCandidates"), list) else []
     if dedupe_candidates:
         lines.append("- Dedupe candidates:")
-        for item in dedupe_candidates[:4]:
+        for item in dedupe_candidates[:2]:
             if not isinstance(item, dict):
                 continue
             title = _sanitize_text(item.get("title"), 90)
@@ -1426,8 +1658,17 @@ def render_hermes_evidence_memory_context(
     topics = data.get("topics") if isinstance(data.get("topics"), list) else []
     if topic_key:
         topics = [item for item in topics if isinstance(item, dict) and str(item.get("topicKey")) == topic_key]
+    else:
+        topics = sorted(
+            [item for item in topics if isinstance(item, dict)],
+            key=lambda item: (
+                {"critical": 0, "high": 1, "normal": 2, "low": 3}.get(str(item.get("lastPriority") or "normal"), 9),
+                -float(item.get("trustScore", 0) or 0),
+                str(item.get("lastSeenAt") or ""),
+            ),
+        )
     lines = ["Hermes evidence memory"]
-    for item in topics[:6]:
+    for item in topics[:4]:
         if not isinstance(item, dict):
             continue
         title = _sanitize_text(item.get("title"), 90) or _sanitize_text(item.get("topicKey"), 90)

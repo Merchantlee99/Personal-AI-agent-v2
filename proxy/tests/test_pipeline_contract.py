@@ -72,6 +72,8 @@ class PipelineContractTests(unittest.TestCase):
                 "update_target_path": "",
                 "merge_candidates": ["[[Memory]]", "[[Memory]]"],
                 "merge_candidate_paths": ["obsidian_vault/01-Knowledge/Memory.md", "obsidian_vault/01-Knowledge/Memory.md"],
+                "suggestion_score": 0.78,
+                "suggestion_reasons": ["제목 핵심 토큰이 겹칩니다", "본문 문맥 토큰이 겹칩니다", "병합 검토 가치가 높습니다"],
                 "classification_confidence": 0.81,
                 "frontmatter": {"title": "Agent memory note", "type": "knowledge"},
                 "verified": True,
@@ -87,6 +89,8 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(artifact.noteAction, "merge_candidate")
         self.assertEqual(artifact.mergeCandidates, ["[[Memory]]"])
         self.assertEqual(artifact.mergeCandidatePaths, ["obsidian_vault/01-Knowledge/Memory.md"])
+        self.assertEqual(artifact.suggestionScore, 0.78)
+        self.assertEqual(len(artifact.suggestionReasons), 3)
 
     def test_summary_block_rejects_inverted_window(self) -> None:
         with self.assertRaises(ValidationError):

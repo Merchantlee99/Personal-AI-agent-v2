@@ -51,6 +51,8 @@ class ClioPipelineResult:
     merge_candidates: list[str]
     update_target_path: str | None
     merge_candidate_paths: list[str]
+    suggestion_score: float | None
+    suggestion_reasons: list[str]
 
 
 CLIO_OBSIDIAN_FORMAT_VERSION = "clio_obsidian_v2"
@@ -300,6 +302,8 @@ def _update_clio_knowledge_memory(
         "updateTargetPath": clio.update_target_path,
         "mergeCandidates": clio.merge_candidates[:3],
         "mergeCandidatePaths": clio.merge_candidate_paths[:3],
+        "suggestionScore": clio.suggestion_score,
+        "suggestionReasons": clio.suggestion_reasons[:3],
         "suggestionState": "pending" if clio.note_action != "create" else "",
         "updatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
@@ -575,11 +579,15 @@ def _find_recent_note_links(message: str, vault_dir: Path, *, extra_links: list[
     return _dedupe_preserve_order(related)[:8]
 
 
-def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tuple[str, str | None, str | None, list[str], list[str]]:
+def _infer_note_reuse_strategy(
+    title: str,
+    message: str,
+    vault_dir: Path,
+) -> tuple[str, str | None, str | None, list[str], list[str], float | None, list[str]]:
     title_slug = _slugify(title)
     title_tokens = set(_extract_tokens(title))
     message_tokens = set(_extract_tokens(message))
-    candidate_scores: list[tuple[float, str, str]] = []
+    candidate_scores: list[tuple[float, str, str, list[str]]] = []
 
     for note_path in sorted(vault_dir.rglob("*.md"), reverse=True)[:120]:
         stem = note_path.stem
@@ -588,7 +596,14 @@ def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tup
         stem_slug = _slugify(stem)
         shared_relative_path = note_path.relative_to(vault_dir.parent).as_posix()
         if stem_slug == title_slug:
-            return "update_candidate", f"[[{stem}]]", shared_relative_path, [], []
+            shared_tokens = sorted((title_tokens & message_tokens) or title_tokens)[:3]
+            reasons = [
+                "제목이 기존 노트와 정확히 일치합니다.",
+                "같은 주제의 기존 노트를 갱신하는 편이 중복 노트 생성보다 적합합니다.",
+            ]
+            if shared_tokens:
+                reasons.append(f"핵심 토큰이 겹칩니다: {', '.join(shared_tokens)}")
+            return "update_candidate", f"[[{stem}]]", shared_relative_path, [], [], 0.98, reasons[:3]
 
         stem_tokens = set(_extract_tokens(stem))
         if not stem_tokens:
@@ -597,14 +612,26 @@ def _infer_note_reuse_strategy(title: str, message: str, vault_dir: Path) -> tup
         overlap_message = len(message_tokens & stem_tokens) / max(1, len(stem_tokens)) if message_tokens else 0.0
         score = max(overlap_title, overlap_message * 0.6)
         if score >= 0.34:
-            candidate_scores.append((score, stem, shared_relative_path))
+            shared_title_tokens = sorted(title_tokens & stem_tokens)[:3]
+            shared_message_tokens = sorted(message_tokens & stem_tokens)[:3]
+            reasons: list[str] = []
+            if shared_title_tokens:
+                reasons.append(f"제목 핵심 토큰이 겹칩니다: {', '.join(shared_title_tokens)}")
+            if shared_message_tokens:
+                reasons.append(f"본문 문맥 토큰이 겹칩니다: {', '.join(shared_message_tokens)}")
+            reasons.append("새 노트를 따로 만드는 것보다 기존 노트와의 update/merge 검토 가치가 높습니다.")
+            candidate_scores.append((score, stem, shared_relative_path, reasons[:3]))
 
     candidate_scores.sort(key=lambda item: (-item[0], item[1].lower()))
-    merge_candidates = [f"[[{stem}]]" for _, stem, _ in candidate_scores[:3]]
-    merge_candidate_paths = [path for _, _, path in candidate_scores[:3]]
+    merge_candidates = [f"[[{stem}]]" for _, stem, _, _ in candidate_scores[:3]]
+    merge_candidate_paths = [path for _, _, path, _ in candidate_scores[:3]]
     if merge_candidates:
-        return "merge_candidate", None, None, merge_candidates, merge_candidate_paths
-    return "create", None, None, [], []
+        top_score, _, _, top_reasons = candidate_scores[0]
+        reasons = list(top_reasons)
+        if len(merge_candidates) > 1:
+            reasons.append(f"서로 가까운 후보가 {len(merge_candidates)}개 있어 병합 검토가 적합합니다.")
+        return "merge_candidate", None, None, merge_candidates, merge_candidate_paths, round(top_score, 2), reasons[:3]
+    return "create", None, None, [], [], None, []
 
 
 def _route_folder(note_type: str, projects: list[dict[str, str]]) -> str:
@@ -642,6 +669,8 @@ def _render_frontmatter(frontmatter: dict[str, Any]) -> list[str]:
         "update_target_path",
         "merge_candidates",
         "merge_candidate_paths",
+        "suggestion_score",
+        "suggestion_reasons",
     ]
     for key in ordered_keys:
         if key not in frontmatter:
@@ -931,9 +960,15 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         ]
     )
     related_notes = _find_recent_note_links(message, vault_dir, extra_links=[*project_links, *moc_candidates])
-    note_action, update_target, update_target_path, merge_candidates, merge_candidate_paths = _infer_note_reuse_strategy(
-        title, message, vault_dir
-    )
+    (
+        note_action,
+        update_target,
+        update_target_path,
+        merge_candidates,
+        merge_candidate_paths,
+        suggestion_score,
+        suggestion_reasons,
+    ) = _infer_note_reuse_strategy(title, message, vault_dir)
     related_notes = _dedupe_preserve_order([*related_notes, *merge_candidates])
 
     normalized_source = source.strip().lower()
@@ -970,6 +1005,8 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         "update_target_path": update_target_path or "",
         "merge_candidates": merge_candidates,
         "merge_candidate_paths": merge_candidate_paths,
+        "suggestion_score": suggestion_score if suggestion_score is not None else "",
+        "suggestion_reasons": suggestion_reasons,
     }
 
     notebooklm_title = _truncate_text(title, 72)
@@ -1012,6 +1049,8 @@ def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipel
         merge_candidates=merge_candidates,
         update_target_path=update_target_path,
         merge_candidate_paths=merge_candidate_paths,
+        suggestion_score=suggestion_score,
+        suggestion_reasons=suggestion_reasons,
     )
 
 
@@ -1138,6 +1177,7 @@ def build_markdown(
                 f"- update_target_path: {clio.update_target_path or '없음'}",
                 f"- merge_candidates: {', '.join(clio.merge_candidates) if clio.merge_candidates else '없음'}",
                 f"- merge_candidate_paths: {', '.join(clio.merge_candidate_paths) if clio.merge_candidate_paths else '없음'}",
+                f"- suggestion_score: {clio.suggestion_score if clio.suggestion_score is not None else '없음'}",
                 f"- tags: {', '.join(clio.tags)}",
                 f"- source_language: {clio.source_language}",
                 f"- source_urls: {', '.join(clio.source_urls) if clio.source_urls else '없음'}",
@@ -1157,6 +1197,8 @@ def build_markdown(
             lines.extend([f"- related: {item}" for item in clio.related_notes])
         else:
             lines.append("- 없음")
+        if clio.suggestion_reasons:
+            lines.extend([f"- suggestion_reason: {item}" for item in clio.suggestion_reasons[:3]])
         lines.extend(
             [
                 "",
@@ -1251,6 +1293,8 @@ def process_file(
             "update_target_path": clio_pipeline.update_target_path,
             "merge_candidates": clio_pipeline.merge_candidates,
             "merge_candidate_paths": clio_pipeline.merge_candidate_paths,
+            "suggestion_score": clio_pipeline.suggestion_score,
+            "suggestion_reasons": clio_pipeline.suggestion_reasons,
             "claim_review_required": clio_pipeline.claim_review_required,
             "claim_review_id": clio_pipeline.claim_review_id,
             "source_urls": clio_pipeline.source_urls,
@@ -1292,6 +1336,8 @@ def process_file(
         "update_target_path": clio_pipeline.update_target_path if clio_pipeline else None,
         "merge_candidates": clio_pipeline.merge_candidates if clio_pipeline else [],
         "merge_candidate_paths": clio_pipeline.merge_candidate_paths if clio_pipeline else [],
+        "suggestion_score": clio_pipeline.suggestion_score if clio_pipeline else None,
+        "suggestion_reasons": clio_pipeline.suggestion_reasons if clio_pipeline else [],
         "claim_review_required": clio_pipeline.claim_review_required if clio_pipeline else False,
         "claim_review_id": clio_pipeline.claim_review_id if clio_pipeline else None,
         "tags": clio_pipeline.tags if clio_pipeline else [],

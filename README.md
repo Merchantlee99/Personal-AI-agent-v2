@@ -35,6 +35,8 @@ flowchart LR
   - `Minerva, 인사이트 분석해`
 - Minerva Telegram 대화(`/help`, `/reset`, rate-limit, history)
 - Clio knowledge review Telegram 명령(`/clio_reviews`)
+- Clio note suggestion Telegram 명령(`/clio_suggestions`)
+- Clio suggestion 근거/점수 + dismiss cooldown + 자동 Telegram 알림
 - Hermes P0/P1/P2 스케줄 수집 + 카테고리 분류 + 안전 필터
 - DeepL 번역 절감 정책(P0/P1 선택 번역)
 - Google Calendar read-only Telegram 명령
@@ -62,6 +64,10 @@ npm run verify:telegram:gcal
 npm run verify:morning:gcal
 npm run verify:runtime:drift
 npm run verify:clio:format
+npm run verify:clio:suggestion
+npm run verify:clio:merge
+npm run verify:clio:approval
+npm run verify:morning:preflight
 npm run security:check-orchestration
 npm run test:proxy
 ```
@@ -92,3 +98,4 @@ npm run test:proxy
 - 컨테이너는 `bash scripts/runtime/compose.sh up -d` 후 터미널을 닫아도 유지됩니다.
 - poller dead-letter는 `npm run telegram:dead-letter:replay -- all`로 재주입할 수 있습니다.
 - inactive duplicate workflow 정리는 `npm run n8n:purge:inactive`로 실행합니다.
+- morning preflight는 `npm run verify:morning:preflight`로 수동 점검할 수 있고, 08:55 KST 자동화 대상으로 설계되었습니다.

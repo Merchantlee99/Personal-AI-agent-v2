@@ -84,10 +84,12 @@ PERSONAS = _load_personas()
 RESPONSE_FORMATS = {
     "minerva": (
         "Output format (plain text only): "
-        "1) 판단 1~2줄 "
-        "2) 근거 1~3줄 "
-        "3) 다음 행동 1~3개 "
-        "4) 필요한 경우 불확실성 또는 확인 필요 사항 1줄. "
+        "Use exactly these labels in order: "
+        "판단:, 근거:, 다음 행동:, 불확실성:. "
+        "판단은 1~2줄로 결론을 먼저 말한다. "
+        "근거는 사실/해석을 1~3줄로 분리한다. "
+        "다음 행동은 우선순위가 있는 1~3개만 제시한다. "
+        "불확실성은 없으면 '낮음'이라고 명시한다. "
         "Do not use markdown headings like ##."
     ),
     "clio": (
@@ -177,6 +179,9 @@ def _build_prompt(
                 "- Distinguish facts, interpretation, and recommendation when uncertainty matters.",
                 "- If context is weak, ask for only the minimum missing information.",
                 "- Do not pretend to have executed Hermes or Clio work unless the context explicitly contains it.",
+                "- Always answer with the four labeled sections: 판단 / 근거 / 다음 행동 / 불확실성.",
+                "- Prioritize recommendation quality over generic explanation.",
+                "- Rank next actions by urgency or leverage when multiple actions exist.",
             ]
         )
     elif agent_id == "clio":

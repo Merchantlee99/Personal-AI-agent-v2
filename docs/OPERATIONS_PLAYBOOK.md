@@ -59,6 +59,10 @@ npm run verify:telegram:gcal
 npm run verify:morning:gcal
 npm run verify:runtime:drift
 npm run verify:clio:format
+npm run verify:clio:suggestion
+npm run verify:clio:merge
+npm run verify:clio:approval
+npm run verify:morning:preflight
 npm run security:check-orchestration
 npm run verify:llm-usage
 ```
@@ -134,6 +138,7 @@ npm run verify:clio:approval
 6. Telegram에서 검토 목록 확인
 ```text
 /clio_reviews
+/clio_suggestions
 ```
 
 ### 5-4) Google Calendar 명령 실패
@@ -156,6 +161,7 @@ bash scripts/runtime/compose.sh up -d --build
 2. 재기동 후 핵심 검증
 ```bash
 npm run verify:daily
+npm run verify:morning:preflight
 npm run verify:smoke
 npm run verify:orchestration
 npm run verify:runtime:drift
@@ -236,6 +242,36 @@ security add-generic-password -U -s nanoclaw -a INTERNAL_SIGNING_SECRET -w '...'
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_BOT_TOKEN_KEYCHAIN_SERVICE=nanoclaw
 TELEGRAM_BOT_TOKEN_KEYCHAIN_ACCOUNT=TELEGRAM_BOT_TOKEN
+```
+
+## 12) Clio 승인/제안 운영
+
+Clio knowledge claim
+1. 새 knowledge draft는 자동으로 Telegram 검토 알림이 갈 수 있습니다.
+2. `/clio_reviews`로 pending claim을 조회할 수 있습니다.
+3. 승인 시 `draft -> confirmed`, note frontmatter도 같이 갱신됩니다.
+
+Clio note suggestion
+1. `/clio_suggestions`로 pending update/merge 제안을 조회합니다.
+2. 제안 메시지에는 점수, 근거 2~3줄, 변경 요약이 포함됩니다.
+3. `이 제안 보류`를 누르면 cooldown 동안 같은 fingerprint 제안은 재등장하지 않습니다.
+4. note 내용/대상/fingerprint가 바뀌면 다시 제안될 수 있습니다.
+
+## 13) Morning Preflight 해석
+
+`npm run verify:morning:preflight`는 09:00 KST 브리핑 전에 아래를 확인합니다.
+1. runtime up
+2. `llm-proxy /health`
+3. Hermes schedule/dispatch
+4. morning calendar attach
+5. Telegram Minerva text path
+6. runtime drift
+
+실패 시 출력 형식
+```text
+[morning-preflight] FAIL step=...
+[morning-preflight] cause=...
+[morning-preflight] next_action=...
 ```
 
 1Password 예시

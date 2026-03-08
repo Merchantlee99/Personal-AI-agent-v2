@@ -226,6 +226,19 @@ class NoteDraftArtifact(PipelineModel):
         validation_alias=AliasChoices("mergeCandidatePaths", "merge_candidate_paths"),
         serialization_alias="merge_candidate_paths",
     )
+    suggestionScore: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices("suggestionScore", "suggestion_score"),
+        serialization_alias="suggestion_score",
+    )
+    suggestionReasons: list[str] = Field(
+        default_factory=list,
+        max_length=6,
+        validation_alias=AliasChoices("suggestionReasons", "suggestion_reasons"),
+        serialization_alias="suggestion_reasons",
+    )
     classificationConfidence: float = Field(
         ge=0,
         le=1,
@@ -252,7 +265,15 @@ class NoteDraftArtifact(PipelineModel):
     def normalize_note_tags(cls, value: Any) -> Any:
         return _normalize_string_list(value, lowercase=True)
 
-    @field_validator("projectLinks", "mocCandidates", "relatedNotes", "mergeCandidates", "mergeCandidatePaths", mode="before")
+    @field_validator(
+        "projectLinks",
+        "mocCandidates",
+        "relatedNotes",
+        "mergeCandidates",
+        "mergeCandidatePaths",
+        "suggestionReasons",
+        mode="before",
+    )
     @classmethod
     def normalize_note_links(cls, value: Any) -> Any:
         return _normalize_string_list(value, lowercase=False)

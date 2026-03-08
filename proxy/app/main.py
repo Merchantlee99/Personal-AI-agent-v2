@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -50,7 +52,10 @@ from .orch_store import (
     get_telegram_chat_history,
     list_pending_clio_claim_reviews,
     list_pending_clio_note_suggestions,
+    list_new_clio_claim_review_alerts,
+    list_new_clio_note_suggestion_alerts,
     list_agent_events,
+    mark_clio_alert_sent,
     make_dedupe_key,
     mark_approval_executed,
     push_digest_item,
@@ -93,6 +98,7 @@ DIRECT_CALLBACK_ACTIONS = {"clio_save", "hermes_deep_dive", "minerva_insight"}
 SYSTEM_CALLBACK_ACTIONS = {"clio_confirm_knowledge", "clio_apply_suggestion", "clio_dismiss_suggestion"}
 INTERNAL_APPROVAL_ACTIONS = {"approval_yes", "approval_no", "approval_commit"}
 TEXT_RATE_WINDOW: dict[str, dict[str, int]] = {}
+_CLIO_ALERT_THREAD_STARTED = False
 
 
 def _read_int_env(name: str, default: int, minimum: int = 0) -> int:
@@ -115,6 +121,10 @@ def _read_bool_env(name: str, fallback: bool) -> bool:
     if raw in {"0", "false", "no", "off"}:
         return False
     return fallback
+
+
+CLIO_ALERT_INTERVAL_SEC = _read_int_env("CLIO_ALERT_SCAN_INTERVAL_SEC", 30, minimum=10)
+CLIO_ALERTS_ENABLED = _read_bool_env("CLIO_TELEGRAM_ALERT_ENABLED", True)
 
 
 def _parse_model_fallbacks(name: str) -> list[str]:
@@ -354,6 +364,69 @@ def _build_agent_memory_context(agent_id: str, *, topic_key: str | None = None) 
     if agent_id == "hermes":
         return _build_hermes_memory_context(topic_key=topic_key)
     return None
+
+
+def _auto_alert_chat_id() -> str:
+    return str(os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _dispatch_pending_clio_alerts_once() -> None:
+    chat_id = _auto_alert_chat_id()
+    if not CLIO_ALERTS_ENABLED or not chat_id:
+        return
+
+    for review in list_new_clio_claim_review_alerts(limit=3):
+        review_id = str(review.get("id") or "").strip()
+        if not review_id:
+            continue
+        send_telegram_message(
+            {
+                "chat_id": chat_id,
+                "text": render_clio_claim_review_text(review, pending_count=len(list_pending_clio_claim_reviews(limit=200)), mode="alert"),
+                "reply_markup": create_clio_claim_review_keyboard(review_id),
+                "disable_web_page_preview": True,
+            }
+        )
+        mark_clio_alert_sent("claim_review", review_id)
+
+    for suggestion in list_new_clio_note_suggestion_alerts(limit=3):
+        suggestion_id = str(suggestion.get("id") or "").strip()
+        if not suggestion_id:
+            continue
+        send_telegram_message(
+            {
+                "chat_id": chat_id,
+                "text": render_clio_note_suggestion_text(
+                    suggestion,
+                    pending_count=len(list_pending_clio_note_suggestions(limit=200)),
+                    mode="alert",
+                ),
+                "reply_markup": create_clio_note_suggestion_keyboard(suggestion_id),
+                "disable_web_page_preview": True,
+            }
+        )
+        mark_clio_alert_sent("note_suggestion", suggestion_id, fingerprint=str(suggestion.get("suggestionFingerprint") or ""))
+
+
+def _clio_alert_loop() -> None:
+    while True:
+        try:
+            _dispatch_pending_clio_alerts_once()
+        except Exception:  # noqa: BLE001
+            logger.exception("clio alert dispatch loop failed")
+        time.sleep(CLIO_ALERT_INTERVAL_SEC)
+
+
+@app.on_event("startup")
+def _start_clio_alert_loop() -> None:
+    global _CLIO_ALERT_THREAD_STARTED
+    if _CLIO_ALERT_THREAD_STARTED:
+        return
+    if not CLIO_ALERTS_ENABLED or not _auto_alert_chat_id():
+        return
+    thread = threading.Thread(target=_clio_alert_loop, name="clio-alert-loop", daemon=True)
+    thread.start()
+    _CLIO_ALERT_THREAD_STARTED = True
 
 
 def _normalize_event_input(payload: dict[str, Any]) -> dict[str, Any] | None:

@@ -62,6 +62,8 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertIsNone(outbox_payload["update_target_path"])
             self.assertEqual(outbox_payload["merge_candidates"], [])
             self.assertEqual(outbox_payload["merge_candidate_paths"], [])
+            self.assertIsNone(outbox_payload["suggestion_score"])
+            self.assertEqual(outbox_payload["suggestion_reasons"], [])
             self.assertGreaterEqual(outbox_payload["classification_confidence"], 0.55)
             self.assertIn("type/article", outbox_payload["tags"])
             self.assertIn("source/example", outbox_payload["tags"])
@@ -102,6 +104,8 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertIsNone(verified_payload["update_target_path"])
             self.assertEqual(verified_payload["merge_candidates"], [])
             self.assertEqual(verified_payload["merge_candidate_paths"], [])
+            self.assertIsNone(verified_payload["suggestion_score"])
+            self.assertEqual(verified_payload["suggestion_reasons"], [])
             self.assertIn("type/article", verified_payload["tags"])
             self.assertIn("[[trend-ai-overview]]", verified_payload["related_notes"])
             self.assertIn("clio_format_version", verified_payload["frontmatter"])
@@ -299,6 +303,8 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertEqual(outbox_payload["update_target_path"], "obsidian_vault/01-Knowledge/PM 학습 루프.md")
             self.assertEqual(outbox_payload["merge_candidates"], [])
             self.assertEqual(outbox_payload["merge_candidate_paths"], [])
+            self.assertGreaterEqual(outbox_payload["suggestion_score"], 0.9)
+            self.assertGreaterEqual(len(outbox_payload["suggestion_reasons"]), 2)
 
 
 if __name__ == "__main__":
