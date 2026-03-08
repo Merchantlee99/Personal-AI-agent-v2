@@ -149,6 +149,8 @@ class LLMClientTests(unittest.TestCase):
         self.assertIn("판단:, 근거:, 다음 행동:, 불확실성:", prompt)
         self.assertIn("Always answer with the four labeled sections", prompt)
         self.assertIn("Rank next actions by urgency or leverage", prompt)
+        self.assertIn("Avoid accusatory or psychoanalytic framing", prompt)
+        self.assertIn("Do not infer avoidance, burnout, or emotional state", prompt)
 
 
 if __name__ == "__main__":

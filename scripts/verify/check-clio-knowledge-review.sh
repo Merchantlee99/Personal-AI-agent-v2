@@ -100,4 +100,36 @@ assert latest.get("claimReviewRequired") is True, "claimReviewRequired mismatch"
 print("[clio-knowledge] clio knowledge memory validated")
 PY
 
+if [[ "${KEEP_ARTIFACTS:-false}" != "true" ]]; then
+  python3 - <<'PY' "$RUN_ID"
+import json
+import sys
+from pathlib import Path
+
+run_id = sys.argv[1]
+shared_root = Path("shared_data")
+queue_path = shared_root / "shared_memory" / "clio_claim_review_queue.json"
+memory_path = shared_root / "shared_memory" / "clio_knowledge_memory.json"
+queue = json.loads(queue_path.read_text(encoding="utf-8"))
+target_item = next((item for item in queue.get("items", []) if run_id in str(item.get("topicKey", ""))), None)
+vault_file = str(target_item.get("vaultFile") or "") if target_item else ""
+queue["items"] = [item for item in queue.get("items", []) if run_id not in str(item.get("topicKey", ""))]
+queue_path.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding="utf-8")
+memory = json.loads(memory_path.read_text(encoding="utf-8"))
+memory["recentNotes"] = [
+    note for note in memory.get("recentNotes", [])
+    if run_id not in str(note.get("claimReviewId", "")) and run_id not in str(note.get("vaultFile", ""))
+]
+memory_path.write_text(json.dumps(memory, ensure_ascii=False, indent=2), encoding="utf-8")
+input_path = shared_root / "inbox" / f"{run_id}-clio-knowledge-runtime.json"
+if input_path.exists():
+    input_path.unlink()
+if vault_file:
+    note_path = shared_root / vault_file
+    if note_path.exists():
+        note_path.unlink()
+print("[clio-knowledge] cleanup ok")
+PY
+fi
+
 echo "[clio-knowledge] PASS"

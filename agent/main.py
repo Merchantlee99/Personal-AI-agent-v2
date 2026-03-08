@@ -369,6 +369,41 @@ def _sanitize_file_stem(value: str) -> str:
     return compact or "untitled-note"
 
 
+def _next_available_note_path(directory: Path, file_stem: str) -> Path:
+    base = _sanitize_file_stem(file_stem)
+    candidate = directory / f"{base}.md"
+    if not candidate.exists():
+        return candidate
+    for index in range(2, 1000):
+        candidate = directory / f"{base} ({index}).md"
+        if not candidate.exists():
+            return candidate
+    return directory / f"{base}-{uuid.uuid4().hex[:8]}.md"
+
+
+def _is_user_facing_note(note_path: Path, vault_dir: Path) -> bool:
+    try:
+        relative = note_path.relative_to(vault_dir)
+    except ValueError:
+        return False
+    parts = relative.parts
+    if not parts:
+        return False
+    top = parts[0]
+    if top.startswith("."):
+        return False
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", top):
+        return False
+    if top in {"99-Templates", "99-System"}:
+        return False
+    stem = note_path.stem
+    if stem in {"CLAUDE", "환영합니다!"}:
+        return False
+    if stem.startswith(("Clio Suggestion ", "Clio Merge ")):
+        return False
+    return True
+
+
 def _yaml_quote(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
@@ -384,12 +419,18 @@ def _yaml_scalar(value: Any) -> str:
 
 
 def _extract_bracket_field(message: str, field_name: str) -> str:
-    prefix = f"[{field_name}]"
+    patterns = (
+        rf"\[{re.escape(field_name)}\]\s*(.+)$",
+        rf"\[{re.escape(field_name)}\s*[:=]\s*([^\]]+)\]",
+    )
     for line in message.splitlines():
         token = line.strip()
-        if not token.lower().startswith(prefix.lower()):
+        if not token:
             continue
-        return token[len(prefix) :].strip()
+        for pattern in patterns:
+            match = re.search(pattern, token, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
     return ""
 
 
@@ -411,6 +452,13 @@ def _extract_source_lines(message: str) -> list[str]:
     return lines
 
 
+def _strip_inline_bracket_fields(text: str) -> str:
+    cleaned = re.sub(r"\[[A-Za-z0-9_-]+\s*[:=]\s*[^\]]+\]\s*", "", text)
+    cleaned = re.sub(r"\[[A-Za-z0-9_-]+\]\s*", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
 def _meaningful_lines(message: str) -> list[str]:
     lines: list[str] = []
     for raw in message.splitlines():
@@ -419,21 +467,38 @@ def _meaningful_lines(message: str) -> list[str]:
             continue
         if stripped.lower() == "[sources]":
             break
-        if stripped.startswith("[") and "]" in stripped[:32]:
-            continue
         if stripped.startswith("- ") and "http" in stripped:
             continue
-        lines.append(stripped)
+        cleaned = _strip_inline_bracket_fields(stripped)
+        if not cleaned:
+            continue
+        lines.append(cleaned)
     return lines
 
 
-def _derive_title(message: str) -> str:
+def _claim_like_title(text: str) -> str:
+    cleaned = _strip_inline_bracket_fields(text)
+    cleaned = re.sub(r"^[\"'“”‘’]+|[\"'“”‘’]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -:;,.")
+    if not cleaned:
+        return "Clio Draft"
+    if len(cleaned) > 96:
+        sentence = re.split(r"(?<=[.!?다요])\s+", cleaned)[0].strip()
+        if sentence:
+            cleaned = sentence
+    cleaned = cleaned.rstrip(".!? ")
+    return _truncate_text(cleaned, 96)
+
+
+def _derive_title(message: str, note_type: str) -> str:
     bracket_title = _extract_bracket_field(message, "title")
     if bracket_title:
         return _truncate_text(bracket_title, 96)
     for line in _meaningful_lines(message):
         compact = re.sub(r"^(다음 내용을|요청:)\s*", "", line).strip(" -:")
         if compact:
+            if note_type == "knowledge":
+                return _claim_like_title(compact)
             return _truncate_text(compact, 96)
     return "Clio Draft"
 
@@ -441,7 +506,8 @@ def _derive_title(message: str) -> str:
 def _derive_summary(message: str) -> str:
     for line in _meaningful_lines(message):
         if len(line) >= 8:
-            return _truncate_text(line, 220)
+            cleaned = re.sub(r"\s+", " ", line).strip(" -:")
+            return _truncate_text(cleaned, 220)
     return _truncate_text(" ".join(_extract_tokens(message)), 220)
 
 
@@ -568,6 +634,8 @@ def _find_recent_note_links(message: str, vault_dir: Path, *, extra_links: list[
     tokens = _extract_tokens(message)
     related: list[str] = list(extra_links or [])
     for note_path in sorted(vault_dir.rglob("*.md"), reverse=True)[:60]:
+        if not _is_user_facing_note(note_path, vault_dir):
+            continue
         stem = note_path.stem
         if stem.startswith("index") or stem.startswith("tpl-"):
             continue
@@ -590,6 +658,8 @@ def _infer_note_reuse_strategy(
     candidate_scores: list[tuple[float, str, str, list[str]]] = []
 
     for note_path in sorted(vault_dir.rglob("*.md"), reverse=True)[:120]:
+        if not _is_user_facing_note(note_path, vault_dir):
+            continue
         stem = note_path.stem
         if stem.startswith("index") or stem.startswith("tpl-"):
             continue
@@ -634,8 +704,12 @@ def _infer_note_reuse_strategy(
     return "create", None, None, [], [], None, []
 
 
-def _route_folder(note_type: str, projects: list[dict[str, str]]) -> str:
-    if projects and projects[0].get("folder"):
+def _route_folder(note_type: str, projects: list[dict[str, str]], message: str) -> str:
+    explicit_folder = _extract_bracket_field(message, "folder")
+    if explicit_folder:
+        return explicit_folder.strip().rstrip("/")
+    project_note = _extract_bracket_field(message, "project_note").lower()
+    if project_note in {"true", "yes", "1"} and projects and projects[0].get("folder"):
         return str(projects[0]["folder"]).strip().rstrip("/")
     return {
         "study": "01-Knowledge",
@@ -940,11 +1014,11 @@ def translate_with_deepl(text: str, source_language: str, target_language: str) 
 def infer_clio_pipeline(message: str, vault_dir: Path, source: str) -> ClioPipelineResult:
     note_type, classification_confidence = _infer_note_type(message, _extract_source_urls(message), source)
     source_urls = _extract_source_urls(message)
-    title = _derive_title(message)
+    title = _derive_title(message, note_type)
     summary = _derive_summary(message)
     source_lines = _extract_source_lines(message)
     projects = _match_projects(message)
-    folder = _route_folder(note_type, projects)
+    folder = _route_folder(note_type, projects, message)
     template_name = TEMPLATE_FILE_BY_TYPE.get(note_type, TEMPLATE_FILE_BY_TYPE[NOTE_TYPE_DEFAULT])
     domain_tags = _infer_domain_tags(message, note_type)
     project_links = [f"[[{item['name']}]]" for item in projects if item.get("name")]
@@ -1250,7 +1324,10 @@ def process_file(
     vault_target_dir = vault_dir / clio_pipeline.folder if clio_pipeline is not None else vault_dir / datetime.now(UTC).strftime("%Y-%m-%d")
     ensure_dir(vault_target_dir)
     file_stem = _sanitize_file_stem(clio_pipeline.title if clio_pipeline is not None else routing.agent_id)
-    vault_path = vault_target_dir / f"{now}-{file_stem}.md"
+    if clio_pipeline is not None:
+        vault_path = _next_available_note_path(vault_target_dir, file_stem)
+    else:
+        vault_path = vault_target_dir / f"{now}-{file_stem}.md"
     vault_path.write_text(markdown, encoding="utf-8")
     shared_relative_vault_path = vault_path.relative_to(vault_dir.parent).as_posix()
 

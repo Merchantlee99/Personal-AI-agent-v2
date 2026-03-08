@@ -97,7 +97,7 @@ JSON
 }
 
 echo "[clio-approval] create pending knowledge review"
-bash "${REPO_ROOT}/scripts/verify/check-clio-knowledge-review.sh" >/tmp/clio_knowledge_seed.log
+KEEP_ARTIFACTS=true bash "${REPO_ROOT}/scripts/verify/check-clio-knowledge-review.sh" >/tmp/clio_knowledge_seed.log
 
 REVIEW_ID="$(
 python3 - <<'PY'
@@ -186,6 +186,33 @@ note_path = Path("shared_data") / vault_file
 body = note_path.read_text(encoding="utf-8")
 assert 'draft_state: \"confirmed\"' in body, body
 print("[clio-approval] queue, memory, vault note state ok")
+PY
+
+python3 - <<'PY' "$REVIEW_ID"
+import json
+import sys
+from pathlib import Path
+
+review_id = sys.argv[1]
+shared_root = Path("shared_data")
+queue_path = shared_root / "shared_memory" / "clio_claim_review_queue.json"
+memory_path = shared_root / "shared_memory" / "clio_knowledge_memory.json"
+queue = json.loads(queue_path.read_text(encoding="utf-8"))
+target_item = next((item for item in queue.get("items", []) if item.get("id") == review_id), None)
+vault_file = str(target_item.get("vaultFile") or "") if target_item else ""
+queue["items"] = [item for item in queue.get("items", []) if item.get("id") != review_id]
+queue_path.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding="utf-8")
+memory = json.loads(memory_path.read_text(encoding="utf-8"))
+memory["recentNotes"] = [
+    note for note in memory.get("recentNotes", [])
+    if str(note.get("claimReviewId") or "") != review_id
+]
+memory_path.write_text(json.dumps(memory, ensure_ascii=False, indent=2), encoding="utf-8")
+if vault_file:
+    note_path = shared_root / vault_file
+    if note_path.exists():
+        note_path.unlink()
+print("[clio-approval] cleanup ok")
 PY
 
 echo "[clio-approval] PASS"

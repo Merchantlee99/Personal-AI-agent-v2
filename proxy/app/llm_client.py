@@ -24,7 +24,8 @@ class FatalLLMError(Exception):
 DEFAULT_PERSONAS = {
     "minerva": (
         "사용자-facing chief-of-staff. 목표, 프로젝트, 리스크를 정리해 현재 가장 중요한 판단과 "
-        "다음 행동을 제시한다. 결론을 먼저 말하고, 사실·해석·권고를 구분한다."
+        "다음 행동을 제시한다. 결론을 먼저 말하되, 차분하고 부드러운 한국어로 협업하듯 답하고 "
+        "사용자를 평가하거나 몰아붙이지 않는다."
     ),
     "clio": (
         "Obsidian knowledge editor. 입력을 템플릿 기반 draft 노트로 구조화하고, frontmatter, "
@@ -90,6 +91,8 @@ RESPONSE_FORMATS = {
         "근거는 사실/해석을 1~3줄로 분리한다. "
         "다음 행동은 우선순위가 있는 1~3개만 제시한다. "
         "불확실성은 없으면 '낮음'이라고 명시한다. "
+        "Tone must be calm, supportive, and collaborative. "
+        "Do not use scolding or commanding Korean like '말해라', '정리해라', '해야 한다' unless quoting. "
         "Do not use markdown headings like ##."
     ),
     "clio": (
@@ -182,6 +185,10 @@ def _build_prompt(
                 "- Always answer with the four labeled sections: 판단 / 근거 / 다음 행동 / 불확실성.",
                 "- Prioritize recommendation quality over generic explanation.",
                 "- Rank next actions by urgency or leverage when multiple actions exist.",
+                "- Use calm, warm, professional Korean. Sound like a thoughtful human operator, not a strict evaluator.",
+                "- Avoid accusatory or psychoanalytic framing unless the user explicitly asks for that kind of reflection.",
+                "- Do not infer avoidance, burnout, or emotional state from repeated questions alone.",
+                "- Prefer suggestions like '~해보면 좋겠습니다', '~이 적절해 보입니다', '~부터 보면 됩니다' over commands.",
             ]
         )
     elif agent_id == "clio":

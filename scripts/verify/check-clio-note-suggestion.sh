@@ -281,4 +281,29 @@ assert 'draft_state: "review"' in draft_body, draft_body
 print("[clio-suggestion] memory + vault state ok")
 PY
 
+python3 - <<'PY' "$RUN_ID"
+import json
+import sys
+from pathlib import Path
+
+run_id = sys.argv[1]
+shared_root = Path("shared_data")
+memory_path = shared_root / "shared_memory" / "clio_knowledge_memory.json"
+payload = json.loads(memory_path.read_text(encoding="utf-8"))
+recent = payload.get("recentNotes", [])
+payload["recentNotes"] = [
+    item for item in recent
+    if run_id not in str(item.get("title", "")) and run_id not in str(item.get("vaultFile", ""))
+]
+memory_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+for rel in (
+    f"obsidian_vault/01-Knowledge/Clio Suggestion Draft {run_id}.md",
+    f"obsidian_vault/01-Knowledge/Clio Suggestion Target {run_id}.md",
+):
+    path = shared_root / rel
+    if path.exists():
+        path.unlink()
+print("[clio-suggestion] cleanup ok")
+PY
+
 echo "[clio-suggestion] PASS"
