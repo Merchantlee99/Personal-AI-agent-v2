@@ -83,10 +83,11 @@ vault_path = shared_root / vault_file
 assert vault_path.is_file(), f"vault markdown not found: {vault_path}"
 content = vault_path.read_text(encoding="utf-8")
 assert "clio_format_version: \"clio_obsidian_v2\"" in content, "frontmatter clio_format_version missing"
-assert "## Clio Metadata" in content, "Clio metadata section missing"
-assert "## Clio Relationships" in content, "Clio relationships section missing"
-assert "## NotebookLM Summary" in content, "NotebookLM summary section missing"
 assert "# NanoClaw Inbox Capture" not in content, "legacy inbox capture header still present"
+assert "## Clio Metadata" not in content, "user-facing note still contains Clio metadata section"
+assert "## Clio Relationships" not in content, "user-facing note still contains Clio relationships section"
+assert "## NotebookLM Summary" not in content, "user-facing note still contains NotebookLM summary section"
+assert "## Routing Rules" not in content, "user-facing note still contains routing rules section"
 
 print("[clio-format] payload + vault contract verified")
 print(f"[clio-format] vault_file={vault_file}")

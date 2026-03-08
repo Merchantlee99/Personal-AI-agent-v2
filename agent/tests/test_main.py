@@ -83,11 +83,11 @@ class AgentPipelineTests(unittest.TestCase):
             self.assertNotIn("# NanoClaw Inbox Capture", vault_body)
             self.assertIn("## 한 줄 요약", vault_body)
             self.assertIn("## 3가지 핵심 포인트", vault_body)
-            self.assertIn("## Clio Metadata", vault_body)
-            self.assertIn("## Clio Relationships", vault_body)
             self.assertIn("https://example.com/report", vault_body)
-            self.assertIn("- source_language: en", vault_body)
-            self.assertIn("deepl_required: true", vault_body)
+            self.assertNotIn("## Clio Metadata", vault_body)
+            self.assertNotIn("## Clio Relationships", vault_body)
+            self.assertNotIn("## NotebookLM Summary", vault_body)
+            self.assertNotIn("## Routing Rules", vault_body)
 
             verified_files = sorted(verified.glob("*.json"))
             self.assertEqual(len(verified_files), 1)
@@ -156,6 +156,7 @@ class AgentPipelineTests(unittest.TestCase):
             vault_path = root / outbox_payload["vault_file"]
             vault_body = vault_path.read_text(encoding="utf-8")
             self.assertNotIn("## Clio Metadata", vault_body)
+            self.assertIn("runtime_agent_notes", outbox_payload["vault_file"])
             self.assertEqual(len(list(verified.glob("*.json"))), 0)
 
     def test_hermes_deep_dive_creates_minerva_followup_task(self) -> None:

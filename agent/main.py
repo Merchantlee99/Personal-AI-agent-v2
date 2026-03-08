@@ -58,6 +58,7 @@ class ClioPipelineResult:
 CLIO_OBSIDIAN_FORMAT_VERSION = "clio_obsidian_v2"
 CLIO_STATUS_DEFAULT = "seed"
 CLIO_DRAFT_STATE_DEFAULT = "draft"
+RUNTIME_NOTES_DIRNAME = "runtime_agent_notes"
 NOTE_TYPE_DEFAULT = "knowledge"
 TEMPLATE_FILE_BY_TYPE = {
     "study": "tpl-study.md",
@@ -1233,62 +1234,6 @@ def build_markdown(
                 message,
             ]
         )
-    if clio is not None:
-        lines.extend(
-            [
-                "",
-                "## Clio Metadata",
-                f"- format_version: {CLIO_OBSIDIAN_FORMAT_VERSION}",
-                f"- note_type: {clio.note_type}",
-                f"- folder: {clio.folder}",
-                f"- template_name: {clio.template_name}",
-                f"- draft_state: {clio.draft_state}",
-                f"- classification_confidence: {clio.classification_confidence}",
-                f"- claim_review_required: {str(clio.claim_review_required).lower()}",
-                f"- claim_review_id: {clio.claim_review_id or '없음'}",
-                f"- note_action: {clio.note_action}",
-                f"- update_target: {clio.update_target or '없음'}",
-                f"- update_target_path: {clio.update_target_path or '없음'}",
-                f"- merge_candidates: {', '.join(clio.merge_candidates) if clio.merge_candidates else '없음'}",
-                f"- merge_candidate_paths: {', '.join(clio.merge_candidate_paths) if clio.merge_candidate_paths else '없음'}",
-                f"- suggestion_score: {clio.suggestion_score if clio.suggestion_score is not None else '없음'}",
-                f"- tags: {', '.join(clio.tags)}",
-                f"- source_language: {clio.source_language}",
-                f"- source_urls: {', '.join(clio.source_urls) if clio.source_urls else '없음'}",
-                f"- deepl_required: {str(clio.deepl_required).lower()}",
-                f"- deepl_applied: {str(clio.deepl_applied).lower()}",
-                f"- notebooklm_title: {clio.notebooklm_title}",
-                f"- notebooklm_ready: true",
-                "",
-                "## Clio Relationships",
-            ]
-        )
-        if clio.project_links:
-            lines.extend([f"- project: {item}" for item in clio.project_links])
-        if clio.moc_candidates:
-            lines.extend([f"- moc: {item}" for item in clio.moc_candidates])
-        if clio.related_notes:
-            lines.extend([f"- related: {item}" for item in clio.related_notes])
-        else:
-            lines.append("- 없음")
-        if clio.suggestion_reasons:
-            lines.extend([f"- suggestion_reason: {item}" for item in clio.suggestion_reasons[:3]])
-        lines.extend(
-            [
-                "",
-                "## NotebookLM Summary",
-                clio.notebooklm_summary,
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "## Routing Rules",
-            "- canonical ids only: minerva/clio/hermes",
-            "- aliases disabled: use canonical ids only",
-            "- unknown agent fallback: minerva",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -1321,7 +1266,12 @@ def process_file(
         fallback_used=routing.fallback_used,
         clio=clio_pipeline,
     )
-    vault_target_dir = vault_dir / clio_pipeline.folder if clio_pipeline is not None else vault_dir / datetime.now(UTC).strftime("%Y-%m-%d")
+    runtime_notes_dir = vault_dir.parent / RUNTIME_NOTES_DIRNAME
+    vault_target_dir = (
+        vault_dir / clio_pipeline.folder
+        if clio_pipeline is not None
+        else runtime_notes_dir / datetime.now(UTC).strftime("%Y-%m-%d")
+    )
     ensure_dir(vault_target_dir)
     file_stem = _sanitize_file_stem(clio_pipeline.title if clio_pipeline is not None else routing.agent_id)
     if clio_pipeline is not None:

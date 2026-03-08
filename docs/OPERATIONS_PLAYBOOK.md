@@ -1,6 +1,6 @@
 # NanoClaw v2 Operations Playbook
 
-이 문서는 실운영에서 무엇을 어떤 순서로 실행하는지 정리합니다.
+이 문서는 현재 운영 기준에서 무엇을 어떤 순서로 실행하는지 정리합니다.
 
 ## 1) 운영 전제
 
@@ -13,6 +13,8 @@
 중요 사실
 - 현재 운영은 Telegram-only입니다. Next.js 프론트는 제거되었습니다.
 - API 진입점은 `llm-proxy:8000`(호스트 `127.0.0.1:8001`)입니다.
+- 사용자용 Obsidian vault는 [shared_data/obsidian_vault](/Users/isanginn/Workspace/Agent_Workspace/shared_data/obsidian_vault) 입니다.
+- runtime note는 [shared_data/runtime_agent_notes](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime_agent_notes) 에 저장됩니다.
 
 ## 2) Day-1 기동 순서
 
@@ -28,21 +30,7 @@ curl -sS http://127.0.0.1:8001/api/runtime-metrics | jq '{ok,generatedAt}'
 - 4개 컨테이너(proxy/poller/agent/n8n) 모두 Up
 - `llm-proxy /health`가 `ok`
 
-## 3) n8n 워크플로 부트스트랩
-
-```bash
-npm run n8n:bootstrap
-npm run n8n:bootstrap:hermes
-npm run n8n:bootstrap:hermes-search
-```
-
-검증
-```bash
-npm run verify:hermes:schedule
-npm run n8n:test:hermes-search
-```
-
-## 4) Day-2 운영 루틴
+## 3) Day-2 운영 루틴
 
 일일 점검
 ```bash
@@ -73,8 +61,28 @@ npm run test:proxy
 npm run verify:clio-e2e
 npm run verify:memory
 npm run verify:llm-runtime
-npm run verify:clio:approval
 ```
+
+## 4) 사용자용 vault 운영 규칙
+
+사용자-facing vault에는 다음만 남깁니다.
+- 지식 노트
+- reference 노트
+- 프로젝트 허브 노트
+- MOC
+- writing/daily
+
+vault 밖으로 분리할 항목
+- runtime markdown
+- verification artifact
+- queue/raw state/log
+- support/template file
+
+현재 경로
+- live vault: [shared_data/obsidian_vault](/Users/isanginn/Workspace/Agent_Workspace/shared_data/obsidian_vault)
+- runtime note: [shared_data/runtime_agent_notes](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime_agent_notes)
+- support: [shared_data/runtime/obsidian_support](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime/obsidian_support)
+- archive: [shared_data/archive](/Users/isanginn/Workspace/Agent_Workspace/shared_data/archive)
 
 ## 5) 장애 대응 런북
 
@@ -83,15 +91,15 @@ npm run verify:clio:approval
 ```bash
 bash scripts/runtime/compose.sh ps
 ```
-2. n8n 로그 확인
+2. morning preflight 수동 실행
+```bash
+npm run verify:morning:preflight
+```
+3. n8n 로그 확인
 ```bash
 bash scripts/runtime/compose.sh logs n8n --tail=200
 ```
-3. 오케스트레이션 경로 검증
-```bash
-npm run verify:orchestration
-```
-4. Telegram poller 로그 확인
+4. poller 로그 확인
 ```bash
 bash scripts/runtime/compose.sh logs telegram-poller --tail=200
 ```
@@ -117,16 +125,17 @@ bash scripts/runtime/compose.sh logs telegram-poller --tail=200
 npm run verify:telegram:chat
 ```
 
-### 5-3) Clio 산출물 누락
+### 5-3) Clio 산출물 누락 또는 vault 오염
 1. inbox 파일 생성 여부 확인: `shared_data/inbox`
 2. agent 로그 확인
 ```bash
 bash scripts/runtime/compose.sh logs nanoclaw-agent --tail=200
 ```
 3. 산출물 확인
-- `shared_data/obsidian_vault`
-- `shared_data/verified_inbox`
-- `shared_data/outbox`
+- live vault: `shared_data/obsidian_vault`
+- verified: `shared_data/verified_inbox`
+- runtime notes: `shared_data/runtime_agent_notes`
+- outbox: `shared_data/outbox`
 4. 포맷 계약 검증
 ```bash
 npm run verify:clio:format
@@ -142,16 +151,12 @@ npm run verify:clio:approval
 ```
 
 ### 5-4) Google Calendar 명령 실패
-1. 상태 확인
+1. `/gcal_status`, `/gcal_today` 확인
+2. 필요 시 `/gcal_connect`로 OAuth 재연결
+3. morning calendar attach 검증
 ```bash
-curl -sS http://127.0.0.1:8001/api/integrations/google-calendar/status \
-  -H "x-internal-token: $INTERNAL_API_TOKEN" \
-  -H "x-timestamp: <ts>" \
-  -H "x-nonce: <nonce>" \
-  -H "x-signature: <sig>"
+npm run verify:morning:gcal
 ```
-2. Telegram에서 `/gcal_status`, `/gcal_today` 확인
-3. 필요 시 `/gcal_connect`로 OAuth 재연결
 
 ## 6) 변경 반영 운영 규칙
 1. `.env.local` 수정 후 컨테이너 재기동
@@ -169,66 +174,21 @@ npm run security:check-orchestration
 ```
 3. 운영 중대 변경은 PR 경유(직접 main 반영 지양)
 
-## 7) GitHub Auto PR + Auto-Merge 운영
-
-관련 파일
-- `.github/workflows/auto-pr-automerge.yml`
-- `scripts/github/enable-auto-pr-automerge-settings.sh`
-
-동작
-- `main`이 아닌 브랜치 push 시 PR 생성/재사용
-- auto-merge 활성화 시도(필수 체크 green 이후 merge)
-
-1회 선행 설정
-1. Repository Settings -> General -> Pull Requests -> `Allow auto-merge`
-2. Repository Settings -> Actions -> General
-   - Workflow permissions: `Read and write`
-   - `Allow GitHub Actions to create and approve pull requests`
-3. 브랜치 보호 규칙(required checks) 정리
-
-부트스트랩
-```bash
-GITHUB_TOKEN=*** GITHUB_REPO=Merchantlee99/Personal-AI-agent-v2 npm run github:auto-merge:bootstrap
-```
-
-## 8) 운영 시퀀스
-
-```mermaid
-flowchart TD
-  BOOT["compose up"] --> N8N["n8n bootstrap"]
-  N8N --> VERIFY["smoke/orchestration/telegram/security"]
-  VERIFY --> RUN["daily operations"]
-  RUN --> CHECK["llm usage + logs + runtime metrics"]
-  CHECK -->|"이상"| INCIDENT["runbook 대응"]
-  INCIDENT --> VERIFY
-  CHECK -->|"정상"| RUN
-```
-
-## 9) 운영 체크리스트
+## 7) 운영 체크리스트
 - [ ] Telegram action allowlist 3종 설정됨
 - [ ] `security:check-orchestration` PASS
 - [ ] `verify:hermes:schedule` PASS
 - [ ] `verify:runtime:drift` PASS
 - [ ] `verify:telegram:inline` PASS
 - [ ] `test:proxy` PASS
-- [ ] Auto PR workflow 성공(run failed 없음)
+- [ ] live vault에 runtime/test artifact가 없음
 
-## 10) 16GB 로컬 안정성 가드
-1. Docker 컨테이너 4개 외 불필요 프로세스 상시 정리
-2. 장시간 미사용 시 `bash scripts/runtime/compose.sh stop`으로 메모리 회수
-3. 점검 명령
-```bash
-docker stats --no-stream
-bash scripts/runtime/compose.sh ps
-vm_stat
-```
+## 8) Host Secret 운영
 
-## 11) Host Secret 운영
-
-권장 원칙
+원칙
 1. `.env.local`에는 시크릿 값 대신 ref만 둡니다.
 2. 실제 값은 macOS Keychain 또는 1Password에 저장합니다.
-3. compose 실행은 `bash scripts/runtime/compose.sh ...`로 고정합니다. 직접 `docker compose --env-file .env.local ...`를 호출하면 Keychain/1Password ref가 빈 값으로 해석될 수 있습니다.
+3. compose 실행은 `bash scripts/runtime/compose.sh ...`로 고정합니다.
 
 macOS Keychain 예시
 ```bash
@@ -244,7 +204,7 @@ TELEGRAM_BOT_TOKEN_KEYCHAIN_SERVICE=nanoclaw
 TELEGRAM_BOT_TOKEN_KEYCHAIN_ACCOUNT=TELEGRAM_BOT_TOKEN
 ```
 
-## 12) Clio 승인/제안 운영
+## 9) Clio 승인/제안 운영
 
 Clio knowledge claim
 1. 새 knowledge draft는 자동으로 Telegram 검토 알림이 갈 수 있습니다.
@@ -257,7 +217,7 @@ Clio note suggestion
 3. `이 제안 보류`를 누르면 cooldown 동안 같은 fingerprint 제안은 재등장하지 않습니다.
 4. note 내용/대상/fingerprint가 바뀌면 다시 제안될 수 있습니다.
 
-## 13) Morning Preflight 해석
+## 10) Morning Preflight 해석
 
 `npm run verify:morning:preflight`는 09:00 KST 브리핑 전에 아래를 확인합니다.
 1. runtime up
@@ -272,10 +232,4 @@ Clio note suggestion
 [morning-preflight] FAIL step=...
 [morning-preflight] cause=...
 [morning-preflight] next_action=...
-```
-
-1Password 예시
-```bash
-ANTHROPIC_API_KEY=
-ANTHROPIC_API_KEY_OP_REF=op://Private/NanoClaw/ANTHROPIC_API_KEY
 ```
