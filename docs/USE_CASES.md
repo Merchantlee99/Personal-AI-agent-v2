@@ -10,7 +10,7 @@
 | Clio 저장 | Telegram 인라인 버튼 | callback -> inbox task -> agent 처리 | Obsidian note + verified payload |
 | Hermes 추가 수집 | Telegram 인라인 버튼 | callback -> hermes task | 추가 근거 + outbox + optional follow-up |
 | Minerva 인사이트 | Telegram 인라인 버튼 | callback -> minerva task | 우선순위 액션 인사이트 |
-| Telegram 일반 대화 | Telegram 일반 텍스트 | `/api/chat(agent=minerva)` 호출 | 대화 응답 + chat history |
+| Telegram 일반 대화 | Telegram 일반 텍스트 | signed internal `/api/chat(agent=minerva)` 호출 | 대화 응답 + chat history |
 | Clio review/suggestion 승인 | Telegram 명령 | pending review/suggestion -> 2단계 승인 | note 상태 업데이트 |
 
 ## 2) 브리핑 수신 시나리오
@@ -85,7 +85,7 @@
 2. rate-limit 적용
 3. chat history 로드
 4. Minerva working memory 주입
-5. `/api/chat(agent=minerva)` 호출
+5. signed internal `/api/chat(agent=minerva)` 호출
 6. 응답 전송 + history/timeline 저장
 
 결과물
@@ -128,7 +128,7 @@ flowchart TD
   D2 --> E2["inbox -> agent deep-dive -> runtime note"]
   D2 --> E3["optional Minerva follow-up"]
   D3 --> E4["Minerva action insight"]
-  D4 --> E5["/api/chat -> llm-proxy"]
+  D4 --> E5["signed internal /api/chat -> llm-proxy"]
   D5 --> E6["approval queue -> note state update"]
 ```
 

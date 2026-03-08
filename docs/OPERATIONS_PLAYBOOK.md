@@ -24,7 +24,8 @@ bash scripts/runtime/compose.sh build
 bash scripts/runtime/compose.sh up -d
 bash scripts/runtime/compose.sh ps
 curl -sS http://127.0.0.1:8001/health
-curl -sS http://127.0.0.1:8001/api/runtime-metrics | jq '{ok,generatedAt}'
+bash scripts/runtime/internal-api-request.sh GET http://127.0.0.1:8001/api/runtime-metrics /tmp/nanoclaw_runtime_metrics.json
+jq '{ok,generatedAt}' /tmp/nanoclaw_runtime_metrics.json
 ```
 
 성공 기준

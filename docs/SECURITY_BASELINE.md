@@ -33,7 +33,7 @@ flowchart LR
 ## 3) 내부 요청 인증/무결성 체인
 
 적용 대상
-- `llm-proxy`: `/api/agent`, `/api/agents`, `/api/search`, `/api/orchestration/events`, Google Calendar 내부 조회 엔드포인트
+- `llm-proxy`: `/api/chat`, `/api/agent`, `/api/agents`, `/api/search`, `/api/runtime-metrics`, `/api/orchestration/events`, Google Calendar 내부 조회 엔드포인트
 
 필수 헤더
 - `x-internal-token`
@@ -116,6 +116,7 @@ flowchart LR
 | 내부 요청 위조 | token + HMAC + timestamp + nonce | `proxy/app/security.py` |
 | replay 공격 | nonce TTL + 재사용 차단 | `proxy/app/security.py` |
 | 내부 이벤트 위조 | `/api/orchestration/events` internal auth 필수 | `proxy/app/main.py`, `scripts/runtime/internal-api-request.sh` |
+| 내부 chat/metrics 오용 | `/api/chat`, `/api/runtime-metrics` internal auth 필수 | `proxy/app/main.py`, `scripts/runtime/internal-api-request.sh` |
 | Telegram 오용 | secret + allowlist + action allowlist + approval queue | `proxy/app/main.py`, `proxy/app/telegram_bridge.py` |
 | poller 유실 은닉 | dead-letter 기록 + offset 분리 | `proxy/app/telegram_poller.py` |
 | prompt injection | 패턴 제거 + inert data contract | `n8n/workflows/*.json`, `proxy/app/search_client.py` |

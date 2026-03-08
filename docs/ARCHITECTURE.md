@@ -30,7 +30,7 @@ flowchart LR
 
   subgraph CORE["Core Service"]
     PX["llm-proxy (FastAPI)"]
-    CHAT["/api/chat"]
+    CHAT["signed internal /api/chat"]
     ORCH["/api/orchestration/events"]
     TGCB["/api/telegram/webhook"]
     GCAL["/api/integrations/google-calendar/*"]
@@ -129,7 +129,7 @@ sequenceDiagram
   participant T as Telegram Cloud
   participant TP as telegram-poller
   participant W as /api/telegram/webhook
-  participant C as /api/chat
+  participant C as "signed /api/chat"
   participant PX as llm-proxy
   participant L as LLM
 

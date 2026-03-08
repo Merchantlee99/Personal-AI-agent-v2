@@ -5,7 +5,7 @@
 ## 1) 핵심 결론
 - Next.js 프론트 경로를 제거하고 `llm-proxy` 단일 진입 구조로 정리 완료
 - Telegram polling, internal HMAC chain, 최소권한 컨테이너, Tavily allowlist 적용 완료
-- `/api/orchestration/events` internal auth 강제, fail-closed secret 로드, Clio vault write boundary 고정 완료
+- `/api/chat`, `/api/runtime-metrics`, `/api/orchestration/events` internal auth 강제, fail-closed secret 로드, Clio vault write boundary 고정 완료
 - morning preflight를 read-only 점검으로 분리 완료
 - Minerva working memory, Clio/Hermes role memory, 승인 큐, runtime drift audit 구현 완료
 - Clio v2는 template-driven Obsidian note 생성, review/suggestion/approval까지 구현 완료
@@ -19,6 +19,7 @@
 | 역할 경계(미네르바/클리오/헤르메스) | 완료 | `proxy/app/main.py`, `config/personas.json` |
 | LLM 단일 게이트 + 내부 인증 체인 | 완료 | `proxy/app/main.py`, `proxy/app/security.py` |
 | `/api/orchestration/events` signed internal gate | 완료 | `proxy/app/main.py`, `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
+| `/api/chat`, `/api/runtime-metrics` signed internal gate | 완료 | `proxy/app/main.py`, `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 모델 라우팅 + 429 fallback + 사용량 기록 | 완료 | `proxy/app/main.py`, `proxy/app/llm_client.py` |
 | Hermes P0/P1/P2 스케줄 수집 | 완료 | `n8n/workflows/hermes-daily-briefing.json` |
 | Tavily 웹검색 + 안전필터 | 완료 | `n8n/workflows/hermes-web-search-tavily.json`, `proxy/app/search_client.py` |
@@ -45,8 +46,8 @@
 ```mermaid
 flowchart LR
   TG["Telegram"] --> TP["telegram-poller"] --> WEBHOOK["/api/telegram/webhook"]
-  WEBHOOK --> CHAT["/api/chat"] --> PX["llm-proxy"] --> LLM["Gemini / Anthropic"]
-  N8N["n8n"] --> ORCH["/api/orchestration/events"]
+  WEBHOOK --> CHAT["signed /api/chat"] --> PX["llm-proxy"] --> LLM["Gemini / Anthropic"]
+  N8N["n8n"] --> ORCH["signed /api/orchestration/events"]
   WEBHOOK --> INBOX["inbox"] --> AG["nanoclaw-agent"]
   AG --> VAULT["obsidian_vault"]
   AG --> RUNTIME["runtime_agent_notes"]

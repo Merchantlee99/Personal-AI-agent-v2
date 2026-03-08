@@ -7,6 +7,7 @@ NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 역할을 분리해 운영하는
 - Canonical Agent ID 고정: `minerva`, `clio`, `hermes`
 - 단일 게이트: Telegram/n8n -> `llm-proxy`
 - 내부 이벤트는 token + HMAC + timestamp + nonce 체인으로만 통과
+- 내부 운영 API(`/api/chat`, `/api/agent`, `/api/search`, `/api/runtime-metrics`, `/api/orchestration/events`)는 signed internal gate 뒤에 둠
 - 외부 수집 결과는 명령이 아니라 데이터로만 처리
 - 최소 권한 런타임: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, `tmpfs`
 - 사용자용 Obsidian vault와 agent/runtime/support 데이터를 분리
@@ -17,8 +18,8 @@ flowchart LR
   U["User"] --> TG["Telegram"]
   TG --> TP["telegram-poller"]
   TP --> TGC["llm-proxy /api/telegram/webhook"]
-  TGC --> CHAT["llm-proxy /api/chat"]
-  CHAT --> PX["llm-proxy /api/agent"]
+  TGC --> CHAT["signed internal /api/chat"]
+  CHAT --> PX["signed internal /api/agent"]
   PX --> LLM["Gemini / Anthropic"]
 
   N8N["n8n schedule + webhook"] --> SIGN["signed internal request"]

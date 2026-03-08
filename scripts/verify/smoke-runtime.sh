@@ -8,6 +8,7 @@ source scripts/runtime/compose-env.sh
 API_PORT="${API_PORT:-8001}"
 SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
+SIGNED_HELPER="bash scripts/runtime/internal-api-request.sh"
 
 wait_for_container_health() {
   local container="$1"
@@ -29,16 +30,13 @@ wait_for_container_health() {
 }
 
 post_chat_expect_200() {
-  local body="$1"
+  local body_file="$1"
   local output_file="$2"
   local label="$3"
 
   for i in 1 2 3 4 5; do
     status="$(
-      curl -sS -o "$output_file" -w '%{http_code}' \
-        -X POST "http://127.0.0.1:${API_PORT}/api/chat" \
-        -H 'content-type: application/json' \
-        -d "$body" || true
+      $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" "$output_file" "$body_file" || true
     )"
     if [[ "$status" == "200" ]]; then
       cat "$output_file"
@@ -66,8 +64,8 @@ echo "[smoke] ensure shared_data writable"
 mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
 chmod -R a+rwX shared_data || true
 
-echo "[smoke] docker services up (telegram-only runtime)"
-compose_cmd up -d llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
+echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
+compose_cmd up -d --build llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
 
 echo "[smoke] wait containers ready"
 wait_for_container_health nanoclaw-llm-proxy 30 1
@@ -79,22 +77,34 @@ echo "[smoke] llm-proxy health"
 curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
 cat /tmp/nanoclaw_smoke_health.json
 
+echo "[smoke] /api/runtime-metrics signed check"
+$SIGNED_HELPER GET "http://127.0.0.1:${API_PORT}/api/runtime-metrics" /tmp/nanoclaw_smoke_metrics.json >/tmp/nanoclaw_smoke_metrics.status
+if [[ "$(cat /tmp/nanoclaw_smoke_metrics.status)" != "200" ]]; then
+  echo "[smoke] expected 200 for signed runtime metrics check" >&2
+  cat /tmp/nanoclaw_smoke_metrics.json >&2 || true
+  exit 1
+fi
+cat /tmp/nanoclaw_smoke_metrics.json
+
 echo "[smoke] n8n bootstrap"
 bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
 cat /tmp/nanoclaw_smoke_bootstrap.log
 
 echo "[smoke] /api/chat canonical check"
+cat >/tmp/nanoclaw_smoke_chat_canonical.body.json <<'JSON'
+{"agentId":"minerva","message":"smoke-canonical"}
+JSON
 post_chat_expect_200 \
-  '{"agentId":"minerva","message":"smoke-canonical"}' \
+  /tmp/nanoclaw_smoke_chat_canonical.body.json \
   /tmp/nanoclaw_smoke_chat_canonical.json \
   "chat canonical"
 
 echo "[smoke] /api/chat legacy alias rejection check"
+cat >/tmp/nanoclaw_smoke_chat_alias.body.json <<'JSON'
+{"agentId":"ace","message":"smoke-legacy-alias"}
+JSON
 alias_status="$(
-  curl -s -o /tmp/nanoclaw_smoke_chat_alias_reject.json -w '%{http_code}' \
-    -X POST "http://127.0.0.1:${API_PORT}/api/chat" \
-    -H 'content-type: application/json' \
-    -d '{"agentId":"ace","message":"smoke-legacy-alias"}' || true
+  $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" /tmp/nanoclaw_smoke_chat_alias_reject.json /tmp/nanoclaw_smoke_chat_alias.body.json || true
 )"
 if [[ "$alias_status" != "400" ]]; then
   echo "[smoke] expected 400 for legacy alias, got $alias_status" >&2
@@ -103,8 +113,11 @@ if [[ "$alias_status" != "400" ]]; then
 fi
 
 echo "[smoke] /api/chat legacy history(content) check"
+cat >/tmp/nanoclaw_smoke_chat_history.body.json <<'JSON'
+{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}
+JSON
 post_chat_expect_200 \
-  '{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}' \
+  /tmp/nanoclaw_smoke_chat_history.body.json \
   /tmp/nanoclaw_smoke_chat_history.json \
   "chat legacy history"
 

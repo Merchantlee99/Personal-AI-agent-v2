@@ -866,11 +866,11 @@ def agent_reply(payload: AgentRequest, _: Annotated[None, Depends(verify_interna
 
 
 @app.post("/api/chat")
-def chat_reply(payload: ChatRequest) -> dict[str, Any]:
+def chat_reply(payload: ChatRequest, _: Annotated[None, Depends(verify_internal_request)]) -> dict[str, Any]:
     normalized = normalize_agent_id(payload.agent_id)
     if not normalized:
         raise HTTPException(status_code=400, detail="Unknown agent id")
-    memory_context = payload.memory_context
+    memory_context = getattr(payload, "memory_context", None)
     if not isinstance(memory_context, str) or not memory_context.strip():
         memory_context = _build_agent_memory_context(normalized)
     response = _run_agent_pipeline(
@@ -1690,7 +1690,7 @@ def _read_json_file(path: Path, fallback: Any) -> Any:
 
 
 @app.get("/api/runtime-metrics")
-def runtime_metrics() -> dict[str, Any]:
+def runtime_metrics(_: Annotated[None, Depends(verify_internal_request)]) -> dict[str, Any]:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     usage_payload = _read_json_file(LLM_USAGE_FILE, {})
     daily = usage_payload.get("daily", {}) if isinstance(usage_payload, dict) else {}
