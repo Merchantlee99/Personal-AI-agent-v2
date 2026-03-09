@@ -124,8 +124,8 @@ flowchart LR
 | unsafe URL/내부망 유도 | public URL 검증 | `proxy/app/search_client.py`, n8n code nodes |
 | Tavily API base 오염 | https + allowlisted host 강제 | `proxy/app/search_client.py` |
 | 과권한 컨테이너 | read_only/cap_drop/no-new-privileges | `docker-compose.yml` |
-| user vault 오염 | Clio-only write + runtime/support 분리 | `agent/main.py`, `shared_data/*` |
-| 잘못된 worker 라우팅 | unknown `agent_id` quarantine, no silent Minerva fallback | `agent/main.py` |
+| user vault 오염 | Clio-only write + runtime/support 분리 | `agent/runtime_worker.py`, `shared_data/*` |
+| 잘못된 worker 라우팅 | unknown `agent_id` quarantine, no silent Minerva fallback | `agent/runtime_worker.py` |
 | Clio 승인 경로의 과도한 쓰기 | `obsidian_vault` subtree로 write boundary 고정 | `proxy/app/orch_store.py` |
 | host secret 평문 노출 | Keychain/1Password ref + compose wrapper | `scripts/runtime/*.sh` |
 

@@ -254,7 +254,7 @@ sequenceDiagram
 2. `agent/clio_pipeline.py`
 - Clio 분류, 제목/요약 생성, 태그/링크/재사용 판단이 아직 한 모듈에 남아 있다
 
-3. `agent/main.py`
+3. `agent/runtime_worker.py`
 - watcher / inbox I/O / archive / quarantine / runtime orchestration 책임이 남아 있다
 
 즉, 현재 아키텍처는 ingress, approval/clio-state, runtime memory, Clio render/NotebookLM 경계까지 분리됐고, 다음 리팩터링 과제는 `orch_store` façade 축소와 `Clio inference` 추가 분리입니다.

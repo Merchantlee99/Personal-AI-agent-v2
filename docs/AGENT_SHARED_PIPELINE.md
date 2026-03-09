@@ -130,7 +130,7 @@ flowchart TD
 | 정책 판정 | `proxy/app/orch_policy.py` |
 | `summary_block`/compact memory | `proxy/app/orch_store.py` |
 | Telegram 최종 포맷 | `proxy/app/telegram_bridge.py` |
-| `note_draft` 생성/저장 | `agent/main.py` |
+| `note_draft` 생성/저장 | `agent/runtime_worker.py` |
 | `evidence_bundle` 생성 | `n8n/workflows/*.json`, `proxy/app/search_client.py` |
 
 ## 8) 다음 구현 우선순위
