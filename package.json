@@ -6,6 +6,8 @@
     "runtime:build": "bash scripts/runtime/compose.sh build",
     "runtime:up": "bash scripts/runtime/compose.sh up -d",
     "runtime:ps": "bash scripts/runtime/compose.sh ps",
+    "runtime:report:data": "bash scripts/runtime/report-shared-data-usage.sh",
+    "runtime:cleanup:data": "bash scripts/runtime/cleanup-shared-data.sh",
     "verify:config": "bash scripts/verify/validate-agent-config.sh",
     "verify:smoke": "bash scripts/verify/smoke-runtime.sh",
     "verify:orchestration": "bash scripts/verify/check-orchestration-flow.sh",

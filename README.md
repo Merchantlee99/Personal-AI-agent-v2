@@ -91,6 +91,12 @@ bash scripts/runtime/compose.sh up -d
 bash scripts/runtime/compose.sh ps
 ```
 
+런타임 데이터 점검/정리
+```bash
+npm run runtime:report:data
+npm run runtime:cleanup:data
+```
+
 기본 Telegram 수신 경로는 `telegram-poller`이며, 공개 webhook URL 없이 동작합니다.
 컨테이너에는 `.env.local` 전체를 넣지 않고, `docker-compose.yml`에서 서비스별 화이트리스트 키만 주입합니다.
 호스트 시크릿은 `.env.local` 평문 대신 macOS Keychain/1Password ref를 사용할 수 있으며, `scripts/runtime/compose-env.sh`가 compose 실행 직전 이를 로드합니다.
@@ -146,6 +152,7 @@ npm run n8n:cleanup:executions
 - preflight는 read-only 점검만 수행합니다. repair/E2E가 필요하면 `npm run verify:hermes:schedule` 또는 `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`를 별도로 실행합니다.
 - `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 workflow 정의/활성 상태가 이미 일치하면 no-op으로 종료합니다.
 - `npm run n8n:cleanup:executions`는 오래된 execution row와 orphan execution data를 정리하고 결과를 `shared_data/logs/n8n-execution-cleanup.latest.json`에 남깁니다.
+- `npm run runtime:cleanup:data`는 `render_review`, `workflows/backups`, 오래된 점검 로그만 정리합니다.
 - morning briefing 관찰 로그는 `shared_data/logs/morning_briefing_observations.jsonl`에 누적되고, `npm run verify:morning:report`로 최근 7일 성공률 요약을 확인합니다.
 - `npm run verify:morning:observe`는 오늘 아침 브리핑 성공 여부를 별도 JSON 스냅샷으로 남기고, 실패 시 후속 번들 수집 기준으로 사용할 수 있습니다.
 - `npm run verify:morning:bundle`는 observation, preflight, runtime drift, container logs를 하나의 failure bundle로 수집합니다.

@@ -45,6 +45,16 @@ execution data 위생 정리
 npm run n8n:cleanup:executions
 ```
 
+shared_data 사용량 점검
+```bash
+npm run runtime:report:data
+```
+
+shared_data 정리
+```bash
+npm run runtime:cleanup:data
+```
+
 브리핑 직전 read-only 사전 점검
 ```bash
 npm run verify:morning:preflight
@@ -74,6 +84,8 @@ npm run verify:morning:bundle
 - `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 active workflow가 현재 파일과 동일하면 no-op으로 종료합니다.
 - 즉, 반복 검증이 n8n 재시작을 자동으로 유발하지 않습니다.
 - Hermes daily workflow code node는 `Build Briefing Summary`, `Build Briefing Template`, `Build Orchestration Payload`, `Publish Orchestration Event`, `Build API Response`로 분리되어 있습니다.
+- `runtime:cleanup:data`는 live vault와 `archive`를 건드리지 않습니다.
+- 자동 정리 대상은 `render_review`, `workflows/backups`, 오래된 점검 로그만입니다.
 
 수동 개별 점검
 ```bash
