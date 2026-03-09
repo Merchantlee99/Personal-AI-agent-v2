@@ -16,6 +16,7 @@ from main import process_file, process_pending_files
 
 class AgentPipelineTests(unittest.TestCase):
     def _make_dirs(self, root: Path) -> tuple[Path, Path, Path, Path, Path]:
+        os.environ["SHARED_ROOT"] = str(root)
         inbox = root / "inbox"
         outbox = root / "outbox"
         archive = root / "archive"
@@ -29,8 +30,8 @@ class AgentPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             inbox, outbox, archive, vault, verified = self._make_dirs(root)
-            (vault / "2026-03-02").mkdir(parents=True, exist_ok=True)
-            (vault / "2026-03-02" / "trend-ai-overview.md").write_text("# seed note\n", encoding="utf-8")
+            (vault / "02-References").mkdir(parents=True, exist_ok=True)
+            (vault / "02-References" / "trend-ai-overview.md").write_text("# seed note\n", encoding="utf-8")
 
             payload_file = inbox / "clio.json"
             payload_file.write_text(
@@ -291,9 +292,9 @@ class AgentPipelineTests(unittest.TestCase):
 
             self.assertEqual(list(outbox.glob("*.json")), [])
             self.assertEqual(list(verified.glob("*.json")), [])
-            quarantine_files = list((archive / "quarantine").rglob("unknown-agent.json"))
+            quarantine_files = list((archive / "quarantine").rglob("*unknown-agent.json"))
             self.assertEqual(len(quarantine_files), 1)
-            error_sidecars = list((archive / "quarantine").rglob("unknown-agent.json.error.json"))
+            error_sidecars = list((archive / "quarantine").rglob("*unknown-agent.json.error.json"))
             self.assertEqual(len(error_sidecars), 1)
 
     def test_clio_pipeline_marks_update_candidate_when_matching_note_exists(self) -> None:

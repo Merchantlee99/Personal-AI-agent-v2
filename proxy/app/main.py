@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import hmac
 import json
 import logging
 import os
-import re
-import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -25,7 +21,6 @@ from .google_calendar import (
     list_google_today_events,
     save_google_token_from_code,
 )
-from .llm_client import FatalLLMError, RetryableLLMError, generate_agent_reply
 from .models import AgentRequest, AgentResponse, ChatRequest, HistoryMessage, SearchRequest, SearchResponse
 from .orch_contract import ORCHESTRATION_EVENT_SCHEMA_VERSION, validate_event_contract_v1
 from .orch_policy import evaluate_dispatch_policy, get_dispatch_policy, get_journey_theme
@@ -34,36 +29,36 @@ from .orch_store import (
     append_morning_briefing_observation,
     append_telegram_chat_history,
     approve_stage_one,
-    apply_clio_note_suggestion,
     clear_telegram_chat_history,
-    confirm_clio_claim_review,
-    get_clio_knowledge_memory,
     get_clio_claim_review,
     get_clio_note_suggestion,
     create_approval_request,
-    create_event_id,
     create_inbox_task,
+    create_event_id,
     dismiss_clio_note_suggestion,
     find_event_by_id,
     get_approval_queue_stats,
     get_approval_request,
     get_cooldown,
-    get_hermes_evidence_memory,
-    get_minerva_working_memory,
     get_telegram_chat_history,
     list_pending_clio_claim_reviews,
     list_pending_clio_note_suggestions,
-    list_new_clio_claim_review_alerts,
-    list_new_clio_note_suggestion_alerts,
     list_agent_events,
-    mark_clio_alert_sent,
     make_dedupe_key,
     mark_approval_executed,
     push_digest_item,
     reject_approval_request,
-    render_clio_knowledge_memory_context,
-    render_hermes_evidence_memory_context,
-    render_minerva_working_memory_context,
+)
+from .role_runtime import (
+    MODEL_FALLBACKS,
+    MODEL_ROUTING,
+    ROLE_BOUNDARY,
+    build_agent_memory_context as _build_agent_memory_context,
+    build_minerva_memory_context as _build_minerva_memory_context,
+    record_usage as _record_usage,
+    read_bool_env as _read_bool_env,
+    read_int_env as _read_int_env,
+    run_agent_pipeline as _run_agent_pipeline,
 )
 from .search_client import SearchProviderError, get_search_results
 from .security import verify_internal_request
@@ -82,6 +77,22 @@ from .telegram_bridge import (
     send_telegram_message,
     send_telegram_text_message,
 )
+from .telegram_runtime import (
+    build_calendar_briefing_payload_for_dispatch as _build_calendar_briefing_payload_for_dispatch,
+    check_text_rate_limit as _check_text_rate_limit,
+    compact_line as _compact_line,
+    execute_approval_request as _execute_approval_request,
+    execute_inline_action as _execute_inline_action,
+    format_telegram_plain_text as _format_telegram_plain_text,
+    is_allowed_action as _is_allowed_action,
+    render_gcal_status_text as _render_gcal_status_text,
+    render_gcal_today_text as _render_gcal_today_text,
+    requires_approval as _requires_approval,
+    start_clio_alert_loop as _start_clio_alert_loop,
+    verify_allowlist as _verify_allowlist,
+    verify_approval_source as _verify_approval_source,
+    verify_webhook_secret as _verify_webhook_secret,
+)
 
 app = FastAPI(title="nanoclaw-llm-proxy", version="2.1.0")
 logger = logging.getLogger("nanoclaw.llm_proxy")
@@ -95,339 +106,10 @@ OUTBOX_DIR = SHARED_ROOT / "outbox"
 LOGS_DIR = SHARED_ROOT / "logs"
 UI_LLM_DAILY_LIMIT = int(float(os.getenv("UI_LLM_DAILY_LIMIT", os.getenv("LLM_DAILY_LIMIT", "1000")) or "1000"))
 
-DIRECT_CALLBACK_ACTIONS = {"clio_save", "hermes_deep_dive", "minerva_insight"}
-SYSTEM_CALLBACK_ACTIONS = {"clio_confirm_knowledge", "clio_apply_suggestion", "clio_dismiss_suggestion"}
-INTERNAL_APPROVAL_ACTIONS = {"approval_yes", "approval_no", "approval_commit"}
-TEXT_RATE_WINDOW: dict[str, dict[str, int]] = {}
-_CLIO_ALERT_THREAD_STARTED = False
-
-
-def _read_int_env(name: str, default: int, minimum: int = 0) -> int:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        parsed = int(float(raw))
-    except ValueError:
-        return default
-    return max(minimum, parsed)
-
-
-def _read_bool_env(name: str, fallback: bool) -> bool:
-    raw = (os.getenv(name) or "").strip().lower()
-    if not raw:
-        return fallback
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return fallback
-
-
-CLIO_ALERT_INTERVAL_SEC = _read_int_env("CLIO_ALERT_SCAN_INTERVAL_SEC", 30, minimum=10)
-CLIO_ALERTS_ENABLED = _read_bool_env("CLIO_TELEGRAM_ALERT_ENABLED", True)
-
-
-def _parse_model_fallbacks(name: str) -> list[str]:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
-MODEL_ROUTING = {
-    "minerva": os.getenv("MODEL_MINERVA", "gemini-2.5-flash"),
-    "clio": os.getenv("MODEL_CLIO", "gemini-2.0-flash-lite"),
-    "hermes": os.getenv("MODEL_HERMES", "gemini-2.0-flash"),
-}
-
-MODEL_FALLBACKS = {
-    "minerva": _parse_model_fallbacks("MODEL_FALLBACK_MINERVA") or ["gemini-2.0-flash-lite"],
-    "clio": _parse_model_fallbacks("MODEL_FALLBACK_CLIO") or ["gemini-2.5-flash"],
-    "hermes": _parse_model_fallbacks("MODEL_FALLBACK_HERMES") or ["gemini-2.5-flash"],
-}
-
-ROLE_BOUNDARY = {
-    "minerva": "Orchestrates priorities and decisions. Does not execute external search directly.",
-    "clio": "Structures knowledge and documentation only. No trend decision ownership.",
-    "hermes": "Collects external signals and writes briefings. No final strategic decision.",
-}
-
-
-def _is_quota_error(exc: RetryableLLMError) -> bool:
-    detail = str(exc).lower()
-    return "429" in detail or "resource_exhausted" in detail or "quota" in detail
-
-
-def _model_candidates(agent_id: str) -> list[str]:
-    primary = MODEL_ROUTING[agent_id]
-    candidates: list[str] = [primary]
-    seen = {primary}
-    for fallback in MODEL_FALLBACKS[agent_id]:
-        if fallback in seen:
-            continue
-        candidates.append(fallback)
-        seen.add(fallback)
-    return candidates
-
-
-def _record_usage(
-    *,
-    agent_id: str,
-    configured_model: str,
-    selected_model: str,
-    status: str,
-    quota_429_hits: int = 0,
-    error_detail: str | None = None,
-) -> None:
-    if not METRICS_STORE_PATH:
-        return
-
-    path = Path(METRICS_STORE_PATH)
-    now = datetime.now(timezone.utc)
-    day_key = now.strftime("%Y-%m-%d")
-
-    try:
-        if path.is_file():
-            payload = path.read_text(encoding="utf-8")
-            data = {} if not payload.strip() else json.loads(payload)
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            data = {}
-
-        if not isinstance(data, dict):
-            data = {}
-        daily = data.setdefault("daily", {})
-        if not isinstance(daily, dict):
-            daily = {}
-            data["daily"] = daily
-
-        entry = daily.setdefault(
-            day_key,
-            {
-                "total": 0,
-                "success": 0,
-                "transient_error": 0,
-                "fatal_error": 0,
-                "quota_429": 0,
-                "fallback_applied": 0,
-                "per_agent": {},
-                "per_model": {},
-            },
-        )
-        if not isinstance(entry, dict):
-            return
-
-        entry["total"] = int(entry.get("total", 0)) + 1
-        if status == "success":
-            entry["success"] = int(entry.get("success", 0)) + 1
-        elif status == "transient_error":
-            entry["transient_error"] = int(entry.get("transient_error", 0)) + 1
-        else:
-            entry["fatal_error"] = int(entry.get("fatal_error", 0)) + 1
-
-        if quota_429_hits > 0:
-            entry["quota_429"] = int(entry.get("quota_429", 0)) + quota_429_hits
-
-        if configured_model != selected_model:
-            entry["fallback_applied"] = int(entry.get("fallback_applied", 0)) + 1
-
-        per_agent = entry.setdefault("per_agent", {})
-        if isinstance(per_agent, dict):
-            per_agent[agent_id] = int(per_agent.get(agent_id, 0)) + 1
-
-        per_model = entry.setdefault("per_model", {})
-        if isinstance(per_model, dict):
-            per_model[selected_model] = int(per_model.get(selected_model, 0)) + 1
-
-        if error_detail:
-            entry["last_error_detail"] = error_detail[:300]
-
-        data["updated_at"] = now.isoformat().replace("+00:00", "Z")
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp_path.replace(path)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("usage_metrics_write_failed detail=%s", exc)
-
-
-def _run_agent_pipeline(
-    *,
-    agent_id: str,
-    message: str,
-    history: list[HistoryMessage],
-    memory_context: str | None = None,
-    source: str = "api",
-) -> AgentResponse:
-    model_candidates = _model_candidates(agent_id)
-    configured_model = model_candidates[0]
-    selected_model = configured_model
-    reply: str | None = None
-    last_retryable: RetryableLLMError | None = None
-    quota_429_hits = 0
-
-    for index, model in enumerate(model_candidates):
-        selected_model = model
-        try:
-            reply = generate_agent_reply(
-                agent_id=agent_id,
-                model=model,
-                role_boundary=ROLE_BOUNDARY[agent_id],
-                message=message,
-                history=history,
-                memory_context=memory_context,
-            )
-            if index > 0:
-                logger.warning(
-                    "model_fallback_applied agent=%s selected_model=%s primary_model=%s source=%s",
-                    agent_id,
-                    model,
-                    model_candidates[0],
-                    source,
-                )
-            _record_usage(
-                agent_id=agent_id,
-                configured_model=configured_model,
-                selected_model=selected_model,
-                status="success",
-                quota_429_hits=quota_429_hits,
-            )
-            break
-        except RetryableLLMError as exc:
-            last_retryable = exc
-            logger.warning("retryable_llm_error agent=%s model=%s detail=%s source=%s", agent_id, model, exc, source)
-            if _is_quota_error(exc):
-                quota_429_hits += 1
-            should_try_fallback = index < len(model_candidates) - 1 and _is_quota_error(exc)
-            if should_try_fallback:
-                continue
-            _record_usage(
-                agent_id=agent_id,
-                configured_model=configured_model,
-                selected_model=selected_model,
-                status="transient_error",
-                quota_429_hits=quota_429_hits,
-                error_detail=str(exc),
-            )
-            raise HTTPException(status_code=502, detail=f"LLM transient failure: {exc}") from exc
-        except FatalLLMError as exc:
-            logger.error("fatal_llm_error agent=%s model=%s detail=%s source=%s", agent_id, model, exc, source)
-            _record_usage(
-                agent_id=agent_id,
-                configured_model=configured_model,
-                selected_model=selected_model,
-                status="fatal_error",
-                quota_429_hits=quota_429_hits,
-                error_detail=str(exc),
-            )
-            raise HTTPException(status_code=502, detail=f"LLM fatal failure: {exc}") from exc
-
-    if reply is None:
-        detail = f"LLM transient failure: {last_retryable}" if last_retryable else "LLM transient failure"
-        _record_usage(
-            agent_id=agent_id,
-            configured_model=configured_model,
-            selected_model=selected_model,
-            status="transient_error",
-            quota_429_hits=quota_429_hits,
-            error_detail=detail,
-        )
-        raise HTTPException(status_code=502, detail=detail)
-
-    return AgentResponse(
-        agent_id=agent_id,
-        model=selected_model,
-        reply=reply,
-        role_boundary=ROLE_BOUNDARY[agent_id],
-    )
-
-
-def _build_minerva_memory_context() -> str | None:
-    memory = get_minerva_working_memory()
-    return render_minerva_working_memory_context(memory)
-
-
-def _build_clio_memory_context() -> str | None:
-    memory = get_clio_knowledge_memory()
-    return render_clio_knowledge_memory_context(memory)
-
-
-def _build_hermes_memory_context(topic_key: str | None = None) -> str | None:
-    memory = get_hermes_evidence_memory()
-    return render_hermes_evidence_memory_context(memory, topic_key=topic_key)
-
-
-def _build_agent_memory_context(agent_id: str, *, topic_key: str | None = None) -> str | None:
-    if agent_id == "minerva":
-        return _build_minerva_memory_context()
-    if agent_id == "clio":
-        return _build_clio_memory_context()
-    if agent_id == "hermes":
-        return _build_hermes_memory_context(topic_key=topic_key)
-    return None
-
-
-def _auto_alert_chat_id() -> str:
-    return str(os.getenv("TELEGRAM_CHAT_ID") or "").strip()
-
-
-def _dispatch_pending_clio_alerts_once() -> None:
-    chat_id = _auto_alert_chat_id()
-    if not CLIO_ALERTS_ENABLED or not chat_id:
-        return
-
-    for review in list_new_clio_claim_review_alerts(limit=3):
-        review_id = str(review.get("id") or "").strip()
-        if not review_id:
-            continue
-        send_telegram_message(
-            {
-                "chat_id": chat_id,
-                "text": render_clio_claim_review_text(review, pending_count=len(list_pending_clio_claim_reviews(limit=200)), mode="alert"),
-                "reply_markup": create_clio_claim_review_keyboard(review_id),
-                "disable_web_page_preview": True,
-            }
-        )
-        mark_clio_alert_sent("claim_review", review_id)
-
-    for suggestion in list_new_clio_note_suggestion_alerts(limit=3):
-        suggestion_id = str(suggestion.get("id") or "").strip()
-        if not suggestion_id:
-            continue
-        send_telegram_message(
-            {
-                "chat_id": chat_id,
-                "text": render_clio_note_suggestion_text(
-                    suggestion,
-                    pending_count=len(list_pending_clio_note_suggestions(limit=200)),
-                    mode="alert",
-                ),
-                "reply_markup": create_clio_note_suggestion_keyboard(suggestion_id),
-                "disable_web_page_preview": True,
-            }
-        )
-        mark_clio_alert_sent("note_suggestion", suggestion_id, fingerprint=str(suggestion.get("suggestionFingerprint") or ""))
-
-
-def _clio_alert_loop() -> None:
-    while True:
-        try:
-            _dispatch_pending_clio_alerts_once()
-        except Exception:  # noqa: BLE001
-            logger.exception("clio alert dispatch loop failed")
-        time.sleep(CLIO_ALERT_INTERVAL_SEC)
-
 
 @app.on_event("startup")
-def _start_clio_alert_loop() -> None:
-    global _CLIO_ALERT_THREAD_STARTED
-    if _CLIO_ALERT_THREAD_STARTED:
-        return
-    if not CLIO_ALERTS_ENABLED or not _auto_alert_chat_id():
-        return
-    thread = threading.Thread(target=_clio_alert_loop, name="clio-alert-loop", daemon=True)
-    thread.start()
-    _CLIO_ALERT_THREAD_STARTED = True
+def _start_clio_alert_loop_on_startup() -> None:
+    _start_clio_alert_loop()
 
 
 def _normalize_event_input(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -539,289 +221,6 @@ def _should_auto_save_clio(event: dict[str, Any]) -> dict[str, Any]:
     return {"shouldRun": False, "reason": "impact_below_threshold"}
 
 
-def _parse_allowlist(raw: str | None) -> set[str]:
-    if not raw:
-        return set()
-    return {token.strip() for token in raw.split(",") if token.strip()}
-
-
-def _verify_webhook_secret(request: Request) -> bool:
-    expected = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
-    if not expected:
-        return True
-    incoming = (request.headers.get("x-telegram-bot-api-secret-token") or "").strip()
-    return bool(incoming) and hmac.compare_digest(incoming, expected)
-
-
-def _verify_allowlist(update_source: dict[str, Any]) -> tuple[bool, str, str, str]:
-    allowed_users = _parse_allowlist(os.getenv("TELEGRAM_ALLOWED_USER_IDS"))
-    allowed_chats = _parse_allowlist(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))
-
-    user_id = str(update_source.get("userId", "")).strip()
-    chat_id = str(update_source.get("chatId", "")).strip()
-
-    if allowed_users:
-        if not user_id:
-            return False, "missing_user_id", user_id, chat_id
-        if user_id not in allowed_users:
-            return False, "user_not_allowed", user_id, chat_id
-    if allowed_chats:
-        if not chat_id:
-            return False, "missing_chat_id", user_id, chat_id
-        if chat_id not in allowed_chats:
-            return False, "chat_not_allowed", user_id, chat_id
-    return True, "", user_id, chat_id
-
-
-def _verify_approval_source(approval: dict[str, Any], *, user_id: str, chat_id: str) -> tuple[bool, str]:
-    approval_user_id = str(approval.get("requestedByUserId", "")).strip()
-    approval_chat_id = str(approval.get("chatId", "")).strip()
-    if approval_user_id and user_id and approval_user_id != user_id:
-        return False, "approval_user_mismatch"
-    if approval_chat_id and chat_id and approval_chat_id != chat_id:
-        return False, "approval_chat_mismatch"
-    return True, ""
-
-
-def _is_allowed_action(action: str) -> bool:
-    if action in INTERNAL_APPROVAL_ACTIONS:
-        return True
-    if action in SYSTEM_CALLBACK_ACTIONS:
-        return True
-    configured = _parse_allowlist(os.getenv("TELEGRAM_ALLOWED_CALLBACK_ACTIONS"))
-    if not configured:
-        return action in DIRECT_CALLBACK_ACTIONS
-    return action in configured
-
-
-def _approval_queue_enabled() -> bool:
-    return _read_bool_env("TELEGRAM_APPROVAL_QUEUE_ENABLED", True)
-
-
-def _requires_approval(action: str) -> bool:
-    if not _approval_queue_enabled():
-        return False
-    if action in SYSTEM_CALLBACK_ACTIONS:
-        return True
-    configured = _parse_allowlist(os.getenv("TELEGRAM_APPROVAL_REQUIRED_ACTIONS"))
-    if not configured:
-        return action in DIRECT_CALLBACK_ACTIONS
-    return action in configured
-
-
-def _check_text_rate_limit(chat_id: str) -> tuple[bool, int]:
-    window_sec = _read_int_env("TELEGRAM_TEXT_RATE_LIMIT_WINDOW_SEC", 60, 1)
-    max_per_window = _read_int_env("TELEGRAM_TEXT_RATE_LIMIT_MAX", 12, 1)
-    now_ms = int(datetime.now().timestamp() * 1000)
-    window_start = now_ms - (now_ms % (window_sec * 1000))
-    entry = TEXT_RATE_WINDOW.get(chat_id)
-    if not entry or entry.get("windowStart") != window_start:
-        TEXT_RATE_WINDOW[chat_id] = {"windowStart": window_start, "count": 1}
-        return True, 0
-    if entry.get("count", 0) >= max_per_window:
-        retry_after = max(1, int((window_start + window_sec * 1000 - now_ms + 999) / 1000))
-        return False, retry_after
-    entry["count"] = entry.get("count", 0) + 1
-    TEXT_RATE_WINDOW[chat_id] = entry
-    return True, 0
-
-
-def _compact_line(value: str, max_len: int) -> str:
-    normalized = re.sub(r"\s+", " ", value).strip()
-    if len(normalized) <= max_len:
-        return normalized
-    return f"{normalized[: max_len - 1].rstrip()}…"
-
-
-def _format_telegram_plain_text(value: str, max_len: int) -> str:
-    lines = []
-    for raw in value.replace("\r", "").replace("**", "").split("\n"):
-        line = re.sub(r"^\s{0,3}#{1,6}\s*", "", raw).strip()
-        line = re.sub(r'^["“”\'`]+|["“”\'`]+$', "", line)
-        line = re.sub(r"\s+", " ", line).strip()
-        lines.append(line)
-    normalized = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-    if len(normalized) <= max_len:
-        return normalized
-    return f"{normalized[: max_len - 1].rstrip()}…"
-
-
-def _google_calendar_auto_attach_enabled() -> bool:
-    return _read_bool_env("GOOGLE_CALENDAR_ATTACH_TO_MORNING_BRIEFING", True)
-
-
-def _render_gcal_status_text(status: dict[str, Any]) -> str:
-    enabled = bool(status.get("enabled"))
-    readonly = bool(status.get("readonly"))
-    connected = bool(status.get("connected"))
-    token_expired = bool(status.get("tokenExpired"))
-    refresh_available = bool(status.get("refreshAvailable"))
-    scope = str(status.get("scope") or "-")
-    updated_at = str(status.get("tokenUpdatedAt") or "-")
-    expires_at = str(status.get("tokenExpiresAt") or "-")
-    return (
-        "📅 Google Calendar 상태\n"
-        f"• 활성화: {'ON' if enabled else 'OFF'}\n"
-        f"• 연결: {'연결됨' if connected else '미연결'}\n"
-        f"• 권한: {'read-only' if readonly else '확장 권한'}\n"
-        f"• 토큰 상태: {'만료됨(자동갱신 가능)' if token_expired and refresh_available else '만료됨' if token_expired else '정상'}\n"
-        f"• scope: {scope}\n"
-        f"• 토큰 갱신: {updated_at}\n"
-        f"• 토큰 만료: {expires_at}"
-    )
-
-
-def _render_gcal_today_text(today: dict[str, Any], limit: int = 8) -> str:
-    events = today.get("events") if isinstance(today, dict) else []
-    if not isinstance(events, list):
-        events = []
-    if not events:
-        return "📅 오늘 일정이 없습니다."
-
-    lines = ["📅 오늘 일정 요약"]
-    for index, event in enumerate(events[: max(1, limit)], start=1):
-        if not isinstance(event, dict):
-            continue
-        summary = _compact_line(str(event.get("summary") or "(제목 없음)"), 80)
-        start = str(event.get("start") or "-")
-        end = str(event.get("end") or "-")
-        lines.append(f"{index}. {summary} ({start} ~ {end})")
-    if len(events) > limit:
-        lines.append(f"… 외 {len(events) - limit}건")
-    return "\n".join(lines)
-
-
-def _build_calendar_briefing_payload_for_dispatch() -> dict[str, Any] | None:
-    if not is_google_calendar_enabled():
-        return None
-    if not is_google_calendar_readonly():
-        return None
-    if not _google_calendar_auto_attach_enabled():
-        return None
-    try:
-        today = list_google_today_events()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("google_calendar_attach_failed detail=%s", exc)
-        return None
-    events = today.get("events") if isinstance(today, dict) else []
-    if not isinstance(events, list):
-        return None
-    if not events:
-        return {"summary": "오늘 등록된 일정이 없습니다.", "items": []}
-    compact_items = []
-    for item in events[:5]:
-        if not isinstance(item, dict):
-            continue
-        start = str(item.get("start") or "")
-        end = str(item.get("end") or "")
-        time_label = f"{start} ~ {end}" if start or end else "시간 미정"
-        compact_items.append(
-            {
-                "title": _compact_line(str(item.get("summary") or "(제목 없음)"), 80),
-                "timeLabel": _compact_line(time_label, 64),
-            }
-        )
-    return {"summary": f"오늘 일정 {len(events)}건", "items": compact_items}
-
-
-def _execute_inline_action(action: str, event: dict[str, Any]) -> dict[str, Any]:
-    source_refs = [
-        {"title": str(item.get("title", "")), "url": str(item.get("url", ""))}
-        for item in (event.get("sourceRefs") or [])
-        if isinstance(item, dict)
-    ]
-    if action == "clio_save":
-        inbox = create_inbox_task(
-            target_agent_id="clio",
-            reason="telegram_inline_clio_obsidian_save",
-            topic_key=str(event.get("topicKey", "")),
-            title=str(event.get("title", "")),
-            summary=(
-                "다음 내용을 Clio Obsidian 저장 포맷으로 정리해 저장하세요.\n"
-                f"- 핵심 요약: {event.get('summary', '')}\n"
-                "- 필수 출력: 태그, 관련 노트 링크, 출처 URL, notebooklm_ready 메타"
-            ),
-            source_refs=source_refs,
-        )
-        return {"action": action, "eventId": event.get("eventId"), "inbox": inbox, "callbackText": "Clio 옵시디언 저장 요청을 접수했습니다."}
-
-    if action == "hermes_deep_dive":
-        inbox = create_inbox_task(
-            target_agent_id="hermes",
-            reason="telegram_inline_hermes_find_more",
-            topic_key=str(event.get("topicKey", "")),
-            title=str(event.get("title", "")),
-            summary=(
-                "다음 주제와 직접 관련된 뉴스/아티클/트렌드 신호를 더 찾아주세요.\n"
-                f"- 기준 요약: {event.get('summary', '')}\n"
-                "- 역할 제한: 사실/근거 수집만 수행하고, 최종 판단·전략 결론은 작성하지 마세요.\n"
-                "- 요청 출력: 관련 출처 5개 이상, 상충 관점 1개 이상, 핵심 변화 요약(데이터 중심)\n"
-                "- 후속 처리: 처리 완료 후 Minerva 인사이트 분석 태스크가 자동 생성됩니다."
-            ),
-            source_refs=source_refs,
-        )
-        return {
-            "action": action,
-            "eventId": event.get("eventId"),
-            "inbox": inbox,
-            "callbackText": "Hermes 근거 수집 요청을 접수했습니다. 완료 후 Minerva 분석이 자동 연결됩니다.",
-        }
-
-    inbox = create_inbox_task(
-        target_agent_id="minerva",
-        reason="telegram_inline_minerva_insight",
-        topic_key=str(event.get("topicKey", "")),
-        title=str(event.get("title", "")),
-        summary=(
-            "다음 주제에 대해 Minerva 2차적 사고 기반 인사이트 분석을 수행하세요.\n"
-            f"- 핵심 변화(1차): {event.get('summary', '')}\n"
-            "- 2차 분석: 원인-결과 연결고리, 파급 영향도, 리스크/기회 분해\n"
-            "- 요청 출력: 우선순위 액션 3개"
-        ),
-        source_refs=source_refs,
-    )
-    return {"action": action, "eventId": event.get("eventId"), "inbox": inbox, "callbackText": "Minerva 2차 인사이트 분석 요청을 접수했습니다."}
-
-
-def _execute_approval_request(approval: dict[str, Any], *, actor_user_id: str) -> dict[str, Any]:
-    payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
-    target_type = str(payload.get("targetType") or "").strip()
-
-    if target_type == "clio_note_suggestion" or str(approval.get("action") or "") == "clio_apply_suggestion":
-        suggestion_id = str(payload.get("suggestionId") or "").strip()
-        if not suggestion_id:
-            return {"ok": False, "reason": "clio_note_suggestion_id_missing"}
-        applied = apply_clio_note_suggestion(suggestion_id, actor_user_id)
-        if not applied:
-            return {"ok": False, "reason": "clio_note_suggestion_not_found"}
-        return {
-            "ok": True,
-            "action": approval.get("action"),
-            "targetType": "clio_note_suggestion",
-            "noteSuggestion": applied,
-            "callbackText": "Clio 노트 제안을 review 상태로 반영했습니다.",
-        }
-
-    if target_type == "clio_claim_review" or str(approval.get("action") or "") == "clio_confirm_knowledge":
-        review_id = str(payload.get("reviewId") or "").strip()
-        if not review_id:
-            return {"ok": False, "reason": "claim_review_id_missing"}
-        confirmed = confirm_clio_claim_review(review_id, actor_user_id)
-        if not confirmed:
-            return {"ok": False, "reason": "claim_review_not_found"}
-        return {
-            "ok": True,
-            "action": approval.get("action"),
-            "targetType": "clio_claim_review",
-            "claimReview": confirmed,
-            "callbackText": "Clio 지식 노트를 confirmed 상태로 승인했습니다.",
-        }
-
-    event = find_event_by_id(str(approval.get("eventId", "")))
-    if not event:
-        return {"ok": False, "reason": "event_not_found"}
-    execution = _execute_inline_action(str(approval.get("action", "")), event)
-    return {"ok": True, "targetType": "event", **execution}
 
 
 def _ratio(numerator: int, denominator: int) -> float:

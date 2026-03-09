@@ -28,7 +28,7 @@ class AgentRoutingFallbackTests(unittest.TestCase):
                 raise RetryableLLMError("retryable http error: 429 quota exceeded")
             return "fallback reply"
 
-        with patch("app.main.generate_agent_reply", side_effect=fake_generate):
+        with patch("app.role_runtime.generate_agent_reply", side_effect=fake_generate):
             result = agent_reply(AgentRequest(agent_id="clio", message="test"), None)
 
         self.assertEqual(result.model, "gemini-2.5-flash")
@@ -39,7 +39,7 @@ class AgentRoutingFallbackTests(unittest.TestCase):
         MODEL_FALLBACKS["clio"] = ["gemini-2.5-flash"]
 
         with patch(
-            "app.main.generate_agent_reply",
+            "app.role_runtime.generate_agent_reply",
             side_effect=RetryableLLMError("retryable transport error: timeout"),
         ):
             with self.assertRaises(HTTPException) as raised:
@@ -56,9 +56,9 @@ class AgentRoutingFallbackTests(unittest.TestCase):
             return "clio reply"
 
         with (
-            patch("app.main.get_clio_knowledge_memory", return_value={"projects": ["NanoClaw"]}),
-            patch("app.main.render_clio_knowledge_memory_context", return_value="clio context"),
-            patch("app.main.generate_agent_reply", side_effect=fake_generate),
+            patch("app.role_runtime.get_clio_knowledge_memory", return_value={"projects": ["NanoClaw"]}),
+            patch("app.role_runtime.render_clio_knowledge_memory_context", return_value="clio context"),
+            patch("app.role_runtime.generate_agent_reply", side_effect=fake_generate),
         ):
             result = agent_reply(AgentRequest(agent_id="clio", message="test"), None)
 
@@ -73,9 +73,9 @@ class AgentRoutingFallbackTests(unittest.TestCase):
             return "hermes reply"
 
         with (
-            patch("app.main.get_hermes_evidence_memory", return_value={"topics": []}),
-            patch("app.main.render_hermes_evidence_memory_context", return_value="hermes context"),
-            patch("app.main.generate_agent_reply", side_effect=fake_generate),
+            patch("app.role_runtime.get_hermes_evidence_memory", return_value={"topics": []}),
+            patch("app.role_runtime.render_hermes_evidence_memory_context", return_value="hermes context"),
+            patch("app.role_runtime.generate_agent_reply", side_effect=fake_generate),
         ):
             result = agent_reply(AgentRequest(agent_id="hermes", message="test"), None)
 
