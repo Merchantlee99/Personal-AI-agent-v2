@@ -3,49 +3,59 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
-FRONTEND_PORT="${FRONTEND_PORT:-3032}"
-NEXT_LOG="/tmp/nanoclaw_next_smoke_${FRONTEND_PORT}.log"
+API_PORT="${API_PORT:-8001}"
 SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
-
-cleanup() {
-  if [[ -n "${NEXT_PID:-}" ]]; then
-    kill "$NEXT_PID" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
+SIGNED_HELPER="bash scripts/runtime/internal-api-request.sh"
 
 wait_for_container_health() {
-  local container="$1"
+  local service="$1"
   local retries="${2:-20}"
   local sleep_sec="${3:-1}"
+  local container_id=""
+  local status=""
 
-  for i in $(seq 1 "$retries"); do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
+  for _ in $(seq 1 "$retries"); do
+    container_id="$(docker compose ps -q "$service" 2>/dev/null || true)"
+    if [[ -z "$container_id" ]]; then
+      sleep "$sleep_sec"
+      continue
+    fi
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
     if [[ "$status" == "healthy" || "$status" == "running" ]]; then
       return 0
     fi
     sleep "$sleep_sec"
   done
 
-  echo "[smoke] $container is not ready (status=$status)" >&2
-  docker compose logs --tail=40 >/tmp/nanoclaw_smoke_container_logs.txt 2>&1 || true
+  echo "[smoke] $service is not ready (status=$status container_id=$container_id)" >&2
+  compose_cmd logs --tail=40 >/tmp/nanoclaw_smoke_container_logs.txt 2>&1 || true
   cat /tmp/nanoclaw_smoke_container_logs.txt >&2 || true
   return 1
 }
 
+inspect_service_security_flags() {
+  local service="$1"
+  local label="$2"
+  local container_id=""
+  container_id="$(docker compose ps -q "$service" 2>/dev/null || true)"
+  if [[ -z "$container_id" ]]; then
+    echo "[smoke] unable to resolve container for service=$service" >&2
+    return 1
+  fi
+  docker inspect "$container_id" --format "${label}: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}} {{end}}"
+}
+
 post_chat_expect_200() {
-  local body="$1"
+  local body_file="$1"
   local output_file="$2"
   local label="$3"
 
   for i in 1 2 3 4 5; do
     status="$(
-      curl -sS -o "$output_file" -w '%{http_code}' \
-        -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
-        -H 'content-type: application/json' \
-        -d "$body" || true
+      $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" "$output_file" "$body_file" || true
     )"
     if [[ "$status" == "200" ]]; then
       cat "$output_file"
@@ -69,76 +79,51 @@ post_chat_expect_200() {
 echo "[smoke] agent config check"
 bash scripts/verify/validate-agent-config.sh
 
-echo "[smoke] ui structure check"
-bash scripts/verify/check-ui-structure.sh
-
-echo "[smoke] ui inline style budget check"
-bash scripts/verify/check-inline-style-budget.sh
-
 echo "[smoke] ensure shared_data writable"
 mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
 chmod -R a+rwX shared_data || true
 
-echo "[smoke] docker services up"
-docker compose up -d llm-proxy nanoclaw-agent n8n >/dev/null
+echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
+compose_cmd up -d --build llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
 
 echo "[smoke] wait containers ready"
-wait_for_container_health nanoclaw-llm-proxy 20 1
-wait_for_container_health nanoclaw-n8n 30 1
+wait_for_container_health llm-proxy 30 1
+wait_for_container_health n8n 30 1
 wait_for_container_health nanoclaw-agent 20 1
+wait_for_container_health telegram-poller 20 1
 
 echo "[smoke] llm-proxy health"
-health_ready=0
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -fsS http://127.0.0.1:8001/health >/tmp/nanoclaw_smoke_health.json; then
-    health_ready=1
-    break
-  fi
-  sleep 1
-done
+curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
+cat /tmp/nanoclaw_smoke_health.json
 
-if [[ "$health_ready" != "1" ]]; then
-  echo "[smoke] llm-proxy health check failed after retries" >&2
+echo "[smoke] /api/runtime-metrics signed check"
+$SIGNED_HELPER GET "http://127.0.0.1:${API_PORT}/api/runtime-metrics" /tmp/nanoclaw_smoke_metrics.json >/tmp/nanoclaw_smoke_metrics.status
+if [[ "$(cat /tmp/nanoclaw_smoke_metrics.status)" != "200" ]]; then
+  echo "[smoke] expected 200 for signed runtime metrics check" >&2
+  cat /tmp/nanoclaw_smoke_metrics.json >&2 || true
   exit 1
 fi
-cat /tmp/nanoclaw_smoke_health.json
+cat /tmp/nanoclaw_smoke_metrics.json
 
 echo "[smoke] n8n bootstrap"
 bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
 cat /tmp/nanoclaw_smoke_bootstrap.log
 
-echo "[smoke] start next dev on :$FRONTEND_PORT"
-npm run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" >"$NEXT_LOG" 2>&1 &
-NEXT_PID=$!
-
-ready=0
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  code="$(curl -s -o /tmp/nanoclaw_smoke_home.html -w '%{http_code}' "http://127.0.0.1:${FRONTEND_PORT}/" || true)"
-  if [[ "$code" == "200" || "$code" == "404" ]]; then
-    ready=1
-    break
-  fi
-  sleep 1
-done
-
-if [[ "$ready" != "1" ]]; then
-  echo "[smoke] next dev did not become ready" >&2
-  tail -n 50 "$NEXT_LOG" >&2 || true
-  exit 1
-fi
-
 echo "[smoke] /api/chat canonical check"
+cat >/tmp/nanoclaw_smoke_chat_canonical.body.json <<'JSON'
+{"agentId":"minerva","message":"smoke-canonical"}
+JSON
 post_chat_expect_200 \
-  '{"agentId":"minerva","message":"smoke-canonical"}' \
+  /tmp/nanoclaw_smoke_chat_canonical.body.json \
   /tmp/nanoclaw_smoke_chat_canonical.json \
   "chat canonical"
 
 echo "[smoke] /api/chat legacy alias rejection check"
+cat >/tmp/nanoclaw_smoke_chat_alias.body.json <<'JSON'
+{"agentId":"ace","message":"smoke-legacy-alias"}
+JSON
 alias_status="$(
-  curl -s -o /tmp/nanoclaw_smoke_chat_alias_reject.json -w '%{http_code}' \
-    -X POST "http://127.0.0.1:${FRONTEND_PORT}/api/chat" \
-    -H 'content-type: application/json' \
-    -d '{"agentId":"ace","message":"smoke-legacy-alias"}' || true
+  $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" /tmp/nanoclaw_smoke_chat_alias_reject.json /tmp/nanoclaw_smoke_chat_alias.body.json || true
 )"
 if [[ "$alias_status" != "400" ]]; then
   echo "[smoke] expected 400 for legacy alias, got $alias_status" >&2
@@ -147,8 +132,11 @@ if [[ "$alias_status" != "400" ]]; then
 fi
 
 echo "[smoke] /api/chat legacy history(content) check"
+cat >/tmp/nanoclaw_smoke_chat_history.body.json <<'JSON'
+{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}
+JSON
 post_chat_expect_200 \
-  '{"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}' \
+  /tmp/nanoclaw_smoke_chat_history.body.json \
   /tmp/nanoclaw_smoke_chat_history.json \
   "chat legacy history"
 
@@ -160,11 +148,11 @@ cat /tmp/nanoclaw_smoke_webhook.json
 
 echo "[smoke] watchdog check"
 cat > "shared_data/inbox/$INBOX_FILE" <<JSON
-{"agent_id":"clio","message":"smoke watchdog","source":"smoke-runtime"}
+{"agent_id":"hermes","message":"smoke runtime watchdog","source":"smoke-runtime"}
 JSON
 
 processed=0
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
     processed=1
     break
@@ -181,9 +169,24 @@ fi
 latest_outbox="$(ls -1t shared_data/outbox | grep "$INBOX_FILE" | head -n 1)"
 cat "shared_data/outbox/$latest_outbox"
 
+python3 - <<'PY' "shared_data/outbox/$latest_outbox"
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+vault_file = payload.get("vault_file")
+if isinstance(vault_file, str) and vault_file.startswith("runtime_agent_notes/"):
+    target = pathlib.Path("shared_data") / vault_file
+    if target.exists():
+        target.unlink()
+PY
+rm -f "shared_data/outbox/$latest_outbox"
+find shared_data/archive -type f -name "*-${INBOX_FILE}" -delete
+
 echo "[smoke] security flags check"
-docker inspect nanoclaw-agent --format 'agent: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-docker inspect nanoclaw-llm-proxy --format 'proxy: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-docker inspect nanoclaw-n8n --format 'n8n: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+inspect_service_security_flags nanoclaw-agent agent
+inspect_service_security_flags llm-proxy proxy
+inspect_service_security_flags n8n n8n
 
 echo "[smoke] PASS"

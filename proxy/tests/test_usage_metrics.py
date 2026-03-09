@@ -3,21 +3,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import app.main as main
+import app.role_runtime as runtime
 
 
 class UsageMetricsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.original_metrics_path = main.METRICS_STORE_PATH
+        self.original_metrics_path = runtime.METRICS_STORE_PATH
         self.temp_dir = tempfile.TemporaryDirectory()
-        main.METRICS_STORE_PATH = str(Path(self.temp_dir.name) / "llm_usage_metrics.json")
+        runtime.METRICS_STORE_PATH = str(Path(self.temp_dir.name) / "llm_usage_metrics.json")
 
     def tearDown(self) -> None:
-        main.METRICS_STORE_PATH = self.original_metrics_path
+        runtime.METRICS_STORE_PATH = self.original_metrics_path
         self.temp_dir.cleanup()
 
     def test_record_usage_tracks_daily_counters(self) -> None:
-        main._record_usage(
+        runtime.record_usage(
             agent_id="clio",
             configured_model="gemini-2.0-flash-lite",
             selected_model="gemini-2.5-flash",
@@ -25,7 +25,7 @@ class UsageMetricsTests(unittest.TestCase):
             quota_429_hits=1,
         )
 
-        path = Path(main.METRICS_STORE_PATH)
+        path = Path(runtime.METRICS_STORE_PATH)
         self.assertTrue(path.is_file())
 
         data = json.loads(path.read_text(encoding="utf-8"))

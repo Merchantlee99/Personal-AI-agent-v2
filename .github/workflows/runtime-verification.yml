@@ -6,6 +6,8 @@ on:
       - main
       - "codex/**"
   pull_request:
+  schedule:
+    - cron: "55 23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -59,17 +61,17 @@ jobs:
       - name: Validate Agent Config
         run: npm run verify:config
 
-      - name: Validate UI Structure
-        run: npm run verify:ui-structure
-
-      - name: Validate UI Inline Style Budget
-        run: npm run verify:ui-inline-style
+      - name: Validate Event Contract
+        run: npm run verify:event-contract
 
       - name: Proxy Regression Tests
         run: npm run test:proxy
 
       - name: Runtime Smoke Verification
         run: npm run verify:smoke
+
+      - name: Security Baseline Verification
+        run: npm run security:check-orchestration
 
       - name: Collect Runtime Logs
         if: always()

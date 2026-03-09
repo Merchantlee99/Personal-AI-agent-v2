@@ -3,18 +3,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-if [[ -f "${REPO_ROOT}/.env.local" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${REPO_ROOT}/.env.local"
-  set +a
-fi
+ENV_FILE="${REPO_ROOT}/.env.local"
+source "${REPO_ROOT}/scripts/runtime/load-env.sh"
+load_runtime_env "$ENV_FILE"
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
-WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
-ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-}"
-ALLOWED_CHAT_IDS="${TELEGRAM_ALLOWED_CHAT_IDS:-}"
+get_env() {
+  local key="$1"
+  runtime_env_get "$key"
+}
+
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
+WEBHOOK_SECRET="$(get_env TELEGRAM_WEBHOOK_SECRET)"
+ALLOWED_USER_IDS="$(get_env TELEGRAM_ALLOWED_USER_IDS)"
+ALLOWED_CHAT_IDS="$(get_env TELEGRAM_ALLOWED_CHAT_IDS)"
 HISTORY_FILE="${REPO_ROOT}/shared_data/shared_memory/telegram_chat_history.json"
 
 first_csv_value() {
@@ -27,12 +29,8 @@ first_csv_value() {
 SOURCE_USER_ID="$(first_csv_value "$ALLOWED_USER_IDS")"
 SOURCE_CHAT_ID="$(first_csv_value "$ALLOWED_CHAT_IDS")"
 SOURCE_USER_ID="${SOURCE_USER_ID:-10001}"
-SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-${TELEGRAM_CHAT_ID:-20001}}"
-
-headers=(-H 'content-type: application/json')
-if [[ -n "$WEBHOOK_SECRET" ]]; then
-  headers+=(-H "x-telegram-bot-api-secret-token: ${WEBHOOK_SECRET}")
-fi
+SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-$(get_env TELEGRAM_CHAT_ID)}"
+SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-20001}"
 
 history_count_for_chat() {
   python3 - <<'PY' "$HISTORY_FILE" "$SOURCE_CHAT_ID"
@@ -53,6 +51,25 @@ except Exception:
 rows = data.get(chat_id, [])
 print(len(rows) if isinstance(rows, list) else 0)
 PY
+}
+
+post_update_via_proxy() {
+  local payload_file="$1"
+  local output_file="$2"
+  local secret="$3"
+  local response
+  response="$(
+    docker exec -i nanoclaw-llm-proxy python -c 'import sys,urllib.request,urllib.error; secret=sys.argv[1]; body=sys.stdin.buffer.read(); headers={"content-type":"application/json"}; 
+if secret: headers["x-telegram-bot-api-secret-token"]=secret
+req=urllib.request.Request("http://127.0.0.1:8000/api/telegram/webhook", data=body, headers=headers, method="POST")
+try:
+ r=urllib.request.urlopen(req, timeout=10); raw=r.read(); status=r.status
+except urllib.error.HTTPError as e:
+ raw=e.read(); status=e.code
+print(status); print(raw.decode("utf-8", errors="ignore"))' "$secret" < "$payload_file"
+  )"
+  printf '%s' "$response" | head -n 1
+  printf '%s\n' "$response" | tail -n +2 >"$output_file"
 }
 
 post_message_update() {
@@ -78,18 +95,18 @@ PY
 }
 JSON
 
-  local status
-  status="$(
-    curl -sS -o "$output" -w '%{http_code}' \
-      -X POST "${BASE_URL}/api/telegram/webhook" \
-      "${headers[@]}" \
-      -d @/tmp/telegram_minerva_message_update.json || true
-  )"
-  if [[ "$status" != "200" ]]; then
-    echo "[telegram-chat] webhook failed status=${status}" >&2
-    cat "$output" >&2 || true
-    exit 1
-  fi
+  : >"$output"
+  local status=""
+  for _ in 1 2 3; do
+    status="$(post_update_via_proxy /tmp/telegram_minerva_message_update.json "$output" "$WEBHOOK_SECRET" || true)"
+    if [[ "$status" == "200" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "[telegram-chat] webhook failed status=${status}" >&2
+  cat "$output" >&2 || true
+  exit 1
 }
 
 echo "[telegram-chat] before history count"
@@ -144,14 +161,22 @@ echo "[telegram-chat] after history count"
 AFTER_COUNT="$(history_count_for_chat)"
 echo "[telegram-chat] after_count=${AFTER_COUNT}"
 
-python3 - <<'PY' "$BEFORE_COUNT" "$AFTER_COUNT"
+TELEGRAM_MINERVA_HISTORY_TURNS_VALUE="$(get_env TELEGRAM_MINERVA_HISTORY_TURNS)"
+
+python3 - <<'PY' "$BEFORE_COUNT" "$AFTER_COUNT" "$TELEGRAM_MINERVA_HISTORY_TURNS_VALUE"
+import os
 import sys
 
 before = int(sys.argv[1])
 after = int(sys.argv[2])
-if after < before + 2:
-    raise SystemExit(f"[telegram-chat] history append failed: before={before} after={after}")
-print(f"[telegram-chat] history append ok: before={before} after={after}")
+turns = int(sys.argv[3] or "10")
+max_entries = max(4, turns * 2)
+expected_after = max_entries if before + 2 > max_entries else before + 2
+if after < expected_after:
+    raise SystemExit(
+        f"[telegram-chat] history append failed: before={before} after={after} expected_after>={expected_after}"
+    )
+print(f"[telegram-chat] history append ok: before={before} after={after} limit={max_entries}")
 PY
 
 echo "[telegram-chat] PASS"

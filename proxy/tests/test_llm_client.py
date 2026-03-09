@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.llm_client import FatalLLMError, RetryableLLMError, generate_agent_reply
+from app.llm_client import FatalLLMError, RetryableLLMError, _build_prompt, generate_agent_reply
 
 
 class LLMClientTests(unittest.TestCase):
@@ -137,6 +137,20 @@ class LLMClientTests(unittest.TestCase):
 
         self.assertEqual(reply, "claude reply")
         self.assertEqual(anthropic_call.call_count, 1)
+
+    def test_minerva_prompt_enforces_labeled_response_structure(self) -> None:
+        prompt = _build_prompt(
+            agent_id="minerva",
+            role_boundary="orchestrates",
+            user_message="오늘 우선순위 정리해줘",
+            history=[],
+            memory_context="Active projects: TripPixel, NanoClaw",
+        )
+        self.assertIn("판단:, 근거:, 다음 행동:, 불확실성:", prompt)
+        self.assertIn("Always answer with the four labeled sections", prompt)
+        self.assertIn("Rank next actions by urgency or leverage", prompt)
+        self.assertIn("Avoid accusatory or psychoanalytic framing", prompt)
+        self.assertIn("Do not infer avoidance, burnout, or emotional state", prompt)
 
 
 if __name__ == "__main__":

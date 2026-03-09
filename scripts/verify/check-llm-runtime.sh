@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
 if [[ ! -f .env.local ]]; then
   echo "[llm-runtime] .env.local not found" >&2
@@ -56,7 +57,7 @@ if [[ "$LLM_PROVIDER" == "auto" && "$HAS_KEY" != "1" ]]; then
 fi
 
 echo "[llm-runtime] ensure llm-proxy up"
-docker compose up -d llm-proxy >/dev/null
+compose_cmd up -d llm-proxy >/dev/null
 
 echo "[llm-runtime] wait /health"
 ok=0

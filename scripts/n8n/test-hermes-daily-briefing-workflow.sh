@@ -14,6 +14,13 @@ required = {
     "Schedule P0 Daily (KST 09:00)",
     "Schedule P1 Every2Days (KST 09:10)",
     "Schedule P2 Every3Days (KST 09:20)",
+    "Prepare P0 Config",
+    "Prepare P1 Config",
+    "Prepare P2 Config",
+    "Collect Tier Signals",
+    "Build Briefing Summary",
+    "Build Orchestration Payload",
+    "Publish Orchestration Event",
 }
 missing = sorted(required - names)
 if missing:
@@ -23,16 +30,19 @@ code_by_name = {
     for node in workflow.get("nodes", [])
     if node.get("type") == "n8n-nodes-base.code"
 }
-for node_name in ("Normalize Input", "Collect P0 Signals", "Collect P1 Signals", "Collect P2 Signals"):
+for node_name in ("Normalize Input", "Collect Tier Signals"):
     code = code_by_name.get(node_name, "")
     if "INJECTION_PATTERNS" not in code or "isSafeUrl" not in code:
         raise SystemExit(f"missing injection/url filter in node: {node_name}")
-for node_name in ("Collect P0 Signals", "Collect P1 Signals", "Collect P2 Signals"):
+collector_code = code_by_name.get("Collect Tier Signals", "")
+if "HERMES_SEARCH_PROVIDER" not in collector_code:
+    raise SystemExit("missing HERMES_SEARCH_PROVIDER routing in shared collector")
+if "TAVILY_API_KEY" not in collector_code:
+    raise SystemExit("missing TAVILY_API_KEY usage in shared collector")
+for node_name in ("Prepare P0 Config", "Prepare P1 Config", "Prepare P2 Config"):
     code = code_by_name.get(node_name, "")
-    if "HERMES_SEARCH_PROVIDER" not in code:
-        raise SystemExit(f"missing HERMES_SEARCH_PROVIDER routing in collector: {node_name}")
-    if "TAVILY_API_KEY" not in code:
-        raise SystemExit(f"missing TAVILY_API_KEY usage in collector: {node_name}")
+    if "query_base" not in code or "tier_domains" not in code or "heartbeat_url" not in code:
+        raise SystemExit(f"missing tier config fields in node: {node_name}")
 print("[hermes-test] schedule + security filter nodes verified")
 PY
 
@@ -74,10 +84,44 @@ PAYLOAD='{
   ]
 }'
 
+post_with_retry() {
+  local outfile="$1"
+  local attempt=1
+  local max_attempts=5
+
+  while (( attempt <= max_attempts )); do
+    curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
+      -H 'content-type: application/json' \
+      -d "$PAYLOAD" >"$outfile"
+
+    if python3 - "$outfile" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+raw = path.read_text(encoding="utf-8").strip()
+if not raw:
+    raise SystemExit(1)
+payload = json.loads(raw)
+if not isinstance(payload, dict) or payload.get("ok") is not True:
+    raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+
+    echo "[hermes-test] retry ${attempt}/${max_attempts} after empty or invalid response"
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+
+  echo "[hermes-test] failed to get valid JSON response from hermes-daily-briefing webhook" >&2
+  return 1
+}
+
 echo "[hermes-test] first run (expect skipped=false)"
-curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
-  -H 'content-type: application/json' \
-  -d "$PAYLOAD" >/tmp/hermes_first.json
+post_with_retry /tmp/hermes_first.json
 cat /tmp/hermes_first.json
 
 python3 -c 'import json,sys; d=json.load(open("/tmp/hermes_first.json")); assert d.get("ok") is True; assert d.get("skipped") is False; assert "Hermes Daily Briefing" in (d.get("briefing_markdown") or ""); print("[hermes-test] first run validated")'
@@ -106,9 +150,7 @@ PY
 fi
 
 echo "[hermes-test] second run same payload (expect duplicate skip)"
-curl -fsS -X POST "http://localhost:5678/webhook/hermes-daily-briefing" \
-  -H 'content-type: application/json' \
-  -d "$PAYLOAD" >/tmp/hermes_second.json
+post_with_retry /tmp/hermes_second.json
 cat /tmp/hermes_second.json
 
 python3 -c 'import json,sys; d=json.load(open("/tmp/hermes_second.json")); assert d.get("ok") is True; assert d.get("skipped") is True; assert d.get("reason") == "duplicate_briefing"; print("[hermes-test] dedup validated")'
@@ -125,7 +167,7 @@ fi
 
 if [[ "${HERMES_DISPATCH_TO_MINERVA:-false}" == "true" ]]; then
   echo "[hermes-test] dispatch first briefing to minerva orchestration"
-  FRONTEND_PORT="${FRONTEND_PORT:-3000}" bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh /tmp/hermes_first.json
+  API_PORT="${API_PORT:-8001}" bash scripts/n8n/dispatch-hermes-briefing-to-minerva.sh /tmp/hermes_first.json
 fi
 
 echo "[hermes-test] PASS"

@@ -3,15 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-if [[ -f "${REPO_ROOT}/.env.local" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${REPO_ROOT}/.env.local"
-  set +a
-fi
+source "${REPO_ROOT}/scripts/runtime/load-env.sh"
+load_runtime_env "${REPO_ROOT}/.env.local"
 
-FRONTEND_PORT="${FRONTEND_PORT:-3032}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
 ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-}"
 ALLOWED_CHAT_IDS="${TELEGRAM_ALLOWED_CHAT_IDS:-}"
@@ -29,25 +25,23 @@ SOURCE_USER_ID="${SOURCE_USER_ID:-10001}"
 SOURCE_CHAT_ID="${SOURCE_CHAT_ID:-${TELEGRAM_CHAT_ID:-20001}}"
 
 echo "[orchestration] send sample event"
-event_status="$(
-  curl -sS -o /tmp/orch_event.json -w '%{http_code}' \
-    -X POST "${BASE_URL}/api/orchestration/events" \
-    -H 'content-type: application/json' \
-    -d '{
-      "schemaVersion":1,
-      "agentId":"hermes",
-      "topicKey":"mobility-market",
-      "title":"모빌리티 시장 연결 신호",
-      "summary":"로보택시, 배터리 공급망, 핵심 반도체 공급의 상호 영향이 관측되었습니다.",
-      "priority":"high",
-      "confidence":0.86,
-      "tags":["mobility","supply-chain"],
-      "sourceRefs":[
-        {"title":"Sample A","url":"https://example.com/a"},
-        {"title":"Sample B","url":"https://example.com/b"}
-      ]
-    }' || true
-)"
+cat >/tmp/orch_event.payload.json <<'JSON'
+{
+  "schemaVersion": 1,
+  "agentId": "hermes",
+  "topicKey": "mobility-market",
+  "title": "모빌리티 시장 연결 신호",
+  "summary": "로보택시, 배터리 공급망, 핵심 반도체 공급의 상호 영향이 관측되었습니다.",
+  "priority": "high",
+  "confidence": 0.86,
+  "tags": ["mobility", "supply-chain"],
+  "sourceRefs": [
+    {"title": "Sample A", "url": "https://example.com/a"},
+    {"title": "Sample B", "url": "https://example.com/b"}
+  ]
+}
+JSON
+event_status="$(bash "${REPO_ROOT}/scripts/runtime/internal-api-request.sh" POST "${BASE_URL}/api/orchestration/events" /tmp/orch_event.json /tmp/orch_event.payload.json || true)"
 
 if [[ "$event_status" != "200" ]]; then
   echo "[orchestration] event endpoint failed status=$event_status" >&2

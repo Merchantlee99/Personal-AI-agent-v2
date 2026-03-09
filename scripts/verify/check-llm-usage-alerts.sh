@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
 SINCE_WINDOW="${LLM_USAGE_SINCE:-24h}"
 ALERT_THRESHOLD_429="${LLM_ALERT_429_THRESHOLD:-0}"
@@ -38,7 +39,7 @@ PY
   )"
 else
   echo "[llm-usage] metrics store not found, fallback to logs since ${SINCE_WINDOW}"
-  logs="$(docker compose logs llm-proxy --since "$SINCE_WINDOW" 2>/dev/null || true)"
+  logs="$(compose_cmd logs llm-proxy --since "$SINCE_WINDOW" 2>/dev/null || true)"
   total_agent_calls="$(printf "%s" "$logs" | rg -c 'POST /api/agent HTTP/1.1' || true)"
   success_calls="$(printf "%s" "$logs" | rg -c 'POST /api/agent HTTP/1.1" 200' || true)"
   server_errors="$(printf "%s" "$logs" | rg -c 'POST /api/agent HTTP/1.1" 5[0-9][0-9]' || true)"
