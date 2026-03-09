@@ -46,6 +46,7 @@ flowchart LR
 - Clio suggestion 점수/근거/보류 cooldown/자동 Telegram 알림
 - Hermes P0/P1/P2 스케줄 수집 + Tavily 검색 + 안전 필터
 - Hermes daily briefing은 `tier config -> shared collector -> template -> dedup -> signed orchestration` 구조로 정리됨
+- Hermes daily workflow는 `Build Briefing Summary -> Build Briefing Template -> Build Orchestration Payload -> Publish Orchestration Event -> Build API Response`로 분리되어 유지보수 단위를 축소함
 - Google Calendar read-only Telegram 명령
   - `/gcal_connect`, `/gcal_status`, `/gcal_today`
 - 승인 큐 2단계 확인, 이벤트 컨트랙트 검증, 런타임 메트릭 API
@@ -105,8 +106,10 @@ npm run verify:clio:suggestion
 npm run verify:clio:merge
 npm run verify:clio:approval
 npm run verify:morning:preflight
+npm run verify:morning:report
 npm run security:check-orchestration
 npm run test:proxy
+npm run n8n:cleanup:executions
 ```
 
 ## 문서 읽는 순서
@@ -135,3 +138,5 @@ npm run test:proxy
 - morning preflight는 `npm run verify:morning:preflight`로 수동 점검할 수 있고, 08:55 KST 자동화 대상으로 설계되었습니다.
 - preflight는 read-only 점검만 수행합니다. repair/E2E가 필요하면 `npm run verify:hermes:schedule` 또는 `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`를 별도로 실행합니다.
 - `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 workflow 정의/활성 상태가 이미 일치하면 no-op으로 종료합니다.
+- `npm run n8n:cleanup:executions`는 오래된 execution row와 orphan execution data를 정리하고 결과를 `shared_data/logs/n8n-execution-cleanup.latest.json`에 남깁니다.
+- morning briefing 관찰 로그는 `shared_data/logs/morning_briefing_observations.jsonl`에 누적되고, `npm run verify:morning:report`로 최근 7일 성공률 요약을 확인합니다.

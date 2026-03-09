@@ -17,6 +17,11 @@ class InternalApiRouteContractTests(unittest.TestCase):
         dependency_names = [getattr(dep.call, "__name__", "") for dep in route.dependant.dependencies]
         self.assertIn("verify_internal_request", dependency_names)
 
+    def test_orchestration_events_route_requires_internal_auth_dependency(self) -> None:
+        route = next(route for route in main.app.routes if getattr(route, "path", "") == "/api/orchestration/events")
+        dependency_names = [getattr(dep.call, "__name__", "") for dep in route.dependant.dependencies]
+        self.assertIn("verify_internal_request", dependency_names)
+
     def test_chat_reply_handles_missing_memory_context_field(self) -> None:
         with (
             patch("app.main._build_agent_memory_context", return_value="minerva context"),

@@ -14,6 +14,7 @@ from .pipeline_contract import normalize_approval_request_artifact
 
 ROOT = Path((os.getenv("SHARED_ROOT_PATH") or "/app/shared_data").strip() or "/app/shared_data")
 MEMORY_DIR = ROOT / "shared_memory"
+LOGS_DIR = ROOT / "logs"
 EVENTS_FILE = MEMORY_DIR / "agent_events.json"
 COOLDOWN_FILE = MEMORY_DIR / "topic_cooldowns.json"
 DIGEST_FILE = MEMORY_DIR / "digest_queue.json"
@@ -25,6 +26,7 @@ CLIO_KNOWLEDGE_MEMORY_FILE = MEMORY_DIR / "clio_knowledge_memory.json"
 CLIO_CLAIM_REVIEW_QUEUE_FILE = MEMORY_DIR / "clio_claim_review_queue.json"
 HERMES_EVIDENCE_MEMORY_FILE = MEMORY_DIR / "hermes_evidence_memory.json"
 CLIO_ALERT_STATE_FILE = MEMORY_DIR / "clio_alert_state.json"
+MORNING_BRIEFING_OBSERVATIONS_FILE = LOGS_DIR / "morning_briefing_observations.jsonl"
 
 MEMORY_MARKDOWN_MAX_BYTES = max(32000, int(float(os.getenv("MEMORY_MD_MAX_BYTES", "280000") or "280000")))
 MEMORY_MARKDOWN_HEADER = (
@@ -53,6 +55,10 @@ def _ensure_memory_dir() -> None:
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _ensure_logs_dir() -> None:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def _read_json_file(path: Path, fallback: Any) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -65,6 +71,16 @@ def _write_json_file(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def _append_jsonl_file(path: Path, payload: dict[str, Any]) -> None:
+    if path.parent == MEMORY_DIR:
+        _ensure_memory_dir()
+    else:
+        _ensure_logs_dir()
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False))
+        handle.write("\n")
 
 
 def _single_line(value: str, limit: int) -> str:
@@ -162,6 +178,14 @@ def append_agent_event(event: dict[str, Any]) -> None:
         upsert_hermes_evidence_memory(event)
     except Exception:  # noqa: BLE001
         pass
+
+
+def append_morning_briefing_observation(observation: dict[str, Any]) -> None:
+    payload = {
+        "observedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        **observation,
+    }
+    _append_jsonl_file(MORNING_BRIEFING_OBSERVATIONS_FILE, payload)
     try:
         _append_event_to_memory_md(event)
     except Exception:  # noqa: BLE001

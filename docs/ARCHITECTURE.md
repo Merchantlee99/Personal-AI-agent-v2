@@ -218,6 +218,24 @@ sequenceDiagram
 | 정책 엔진(임계값/쿨다운/다이제스트) | `proxy/app/orch_policy.py` |
 | 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
 | 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
+| morning briefing 관찰 로그 | `proxy/app/orch_store.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| n8n execution cleanup | `scripts/n8n/cleanup-execution-data.sh` |
+
+## 7) Hermes Daily Workflow 구조
+
+현재 `Hermes Daily Briefing Workflow`는 아래 단위로 나뉩니다.
+
+1. `Prepare P0/P1/P2 Config`
+2. `Collect Tier Signals`
+3. `Build Briefing Summary`
+4. `Build Briefing Template`
+5. `Build Orchestration Payload`
+6. `Publish Orchestration Event`
+7. `Build API Response`
+
+의도
+- 수집/요약/템플릿/서명/전송/응답을 분리해서 drift와 복붙을 줄임
+- `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
 | 메모리/승인 큐 저장소 | `proxy/app/orch_store.py` |
 | Google Calendar read-only 통합 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
 | Clio template-driven note 생성 | `agent/main.py` |

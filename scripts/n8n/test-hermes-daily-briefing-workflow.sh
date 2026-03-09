@@ -18,6 +18,9 @@ required = {
     "Prepare P1 Config",
     "Prepare P2 Config",
     "Collect Tier Signals",
+    "Build Briefing Summary",
+    "Build Orchestration Payload",
+    "Publish Orchestration Event",
 }
 missing = sorted(required - names)
 if missing:

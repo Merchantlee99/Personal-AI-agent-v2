@@ -7,6 +7,9 @@
 - Telegram polling, internal HMAC chain, 최소권한 컨테이너, Tavily allowlist 적용 완료
 - `/api/chat`, `/api/runtime-metrics`, `/api/orchestration/events` internal auth 강제, fail-closed secret 로드, Clio vault write boundary 고정 완료
 - morning preflight를 read-only 점검으로 분리 완료
+- Hermes daily workflow code node 분리(`summary/template/payload/publish/response`) 완료
+- morning briefing observation log/report 경로 추가 완료
+- n8n execution cleanup script 추가 완료
 - Minerva working memory, Clio/Hermes role memory, 승인 큐, runtime drift audit 구현 완료
 - Clio v2는 template-driven Obsidian note 생성, review/suggestion/approval까지 구현 완료
 - 남은 과제는 NotebookLM 실연동 검증, Aegis 실배포, 실제 7일 연속 morning briefing 운영 데이터 확보
@@ -22,6 +25,7 @@
 | `/api/chat`, `/api/runtime-metrics` signed internal gate | 완료 | `proxy/app/main.py`, `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 모델 라우팅 + 429 fallback + 사용량 기록 | 완료 | `proxy/app/main.py`, `proxy/app/llm_client.py` |
 | Hermes P0/P1/P2 스케줄 수집 | 완료 | `n8n/workflows/hermes-daily-briefing.json` |
+| Hermes daily workflow node 분리 | 완료 | `n8n/workflows/hermes-daily-briefing.json` |
 | Tavily 웹검색 + 안전필터 | 완료 | `n8n/workflows/hermes-web-search-tavily.json`, `proxy/app/search_client.py` |
 | Telegram polling bridge + 인라인 3버튼 + 일반대화 | 완료 | `proxy/app/telegram_poller.py`, `proxy/app/telegram_bridge.py`, `proxy/app/main.py` |
 | 승인 큐(2단계 확인 + TTL) | 완료 | `proxy/app/orch_store.py`, `proxy/app/main.py` |
@@ -36,6 +40,8 @@
 | user-facing vault / runtime note 분리 | 완료 | `agent/main.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
 | Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_store.py` |
 | 통합 운영 메트릭 API | 완료 | `proxy/app/main.py` (`/api/runtime-metrics`) |
+| morning briefing observation report | 완료 | `proxy/app/orch_store.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| n8n execution cleanup / retention | 완료 | `scripts/n8n/cleanup-execution-data.sh` |
 | GitHub Auto PR + Auto Merge | 완료(리포 설정 의존) | `.github/workflows/auto-pr-automerge.yml` |
 | NotebookLM 실운영 검증 | 부분완료 | `agent/main.py` dispatch 구현, 운영 endpoint 검증 미완료 |
 | Aegis 운영 감시자 | 기획 | `docs/AEGIS_PLAN.md` |

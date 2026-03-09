@@ -31,6 +31,7 @@ from .orch_contract import ORCHESTRATION_EVENT_SCHEMA_VERSION, validate_event_co
 from .orch_policy import evaluate_dispatch_policy, get_dispatch_policy, get_journey_theme
 from .orch_store import (
     append_agent_event,
+    append_morning_briefing_observation,
     append_telegram_chat_history,
     approve_stage_one,
     apply_clio_note_suggestion,
@@ -1067,6 +1068,25 @@ async def orchestration_events(
             },
         }
     )
+
+    if event.get("theme") == "morning_briefing":
+        event_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        append_morning_briefing_observation(
+            {
+                "eventId": event["eventId"],
+                "topicKey": event["topicKey"],
+                "title": event["title"],
+                "decision": outcome.get("decision"),
+                "reason": outcome.get("reason"),
+                "telegram": telegram,
+                "calendarBriefingAttached": bool(calendar_briefing is not None),
+                "scheduleSlot": event_payload.get("schedule_slot"),
+                "priorityTier": event_payload.get("priority_tier"),
+                "workflow": event_payload.get("workflow"),
+                "bucketCounts": event_payload.get("bucket_counts"),
+                "sourceCount": len(event.get("sourceRefs") or []),
+            }
+        )
 
     return JSONResponse(
         {

@@ -39,6 +39,11 @@ jq '{ok,generatedAt}' /tmp/nanoclaw_runtime_metrics.json
 npm run verify:daily
 ```
 
+execution data 위생 정리
+```bash
+npm run n8n:cleanup:executions
+```
+
 브리핑 직전 read-only 사전 점검
 ```bash
 npm run verify:morning:preflight
@@ -49,9 +54,15 @@ repair / E2E 점검
 npm run verify:hermes:schedule
 ```
 
+morning briefing 관찰 요약
+```bash
+npm run verify:morning:report
+```
+
 참고
 - `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 active workflow가 현재 파일과 동일하면 no-op으로 종료합니다.
 - 즉, 반복 검증이 n8n 재시작을 자동으로 유발하지 않습니다.
+- Hermes daily workflow code node는 `Build Briefing Summary`, `Build Briefing Template`, `Build Orchestration Payload`, `Publish Orchestration Event`, `Build API Response`로 분리되어 있습니다.
 
 수동 개별 점검
 ```bash
@@ -253,3 +264,39 @@ Clio note suggestion
 원칙
 - `verify:morning:preflight`는 점검만 수행합니다.
 - bootstrap/restart/import가 필요한 repair는 별도 명령으로 실행합니다.
+
+## 11) Morning Briefing 관찰 로그
+
+관찰 파일
+- `shared_data/logs/morning_briefing_observations.jsonl`
+
+생성 시점
+- `theme=morning_briefing` 이벤트가 `/api/orchestration/events`를 통과해 Telegram 전송 판단까지 완료될 때
+
+요약 명령
+```bash
+npm run verify:morning:report
+```
+
+포함 항목
+- 관찰 윈도우 일수
+- observed events / observed days
+- successful days / success rate
+- latest observation
+
+## 12) n8n Execution Data 정리
+
+명령
+```bash
+npm run n8n:cleanup:executions
+```
+
+동작
+1. n8n DB 백업
+2. orphan execution data / metadata 정리
+3. retention window 밖 finished execution 정리
+4. `VACUUM`
+5. 재기동 후 startup warning 재확인
+
+최신 결과
+- `shared_data/logs/n8n-execution-cleanup.latest.json`

@@ -136,7 +136,8 @@ checks = [
             ("Prepare P0 Config", ("query_base", "tier_domains", "heartbeat_url")),
             ("Prepare P1 Config", ("query_base", "tier_domains", "heartbeat_url")),
             ("Prepare P2 Config", ("query_base", "tier_domains", "heartbeat_url")),
-            ("Build API Response", ("INTERNAL_API_TOKEN", "INTERNAL_SIGNING_SECRET", "createHmac", "x-internal-token")),
+            ("Build Orchestration Payload", ("schemaVersion", "sourceRefs", "topicKey")),
+            ("Publish Orchestration Event", ("INTERNAL_API_TOKEN", "INTERNAL_SIGNING_SECRET", "createHmac", "x-internal-token")),
         ],
     },
     {

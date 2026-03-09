@@ -36,14 +36,28 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const data = $input.first()?.json ?? {};\nconst query = data.query ?? '한국 AI 트렌드';\nconst collectedAt = data.collected_at ?? new Date().toISOString();\nconst items = Array.isArray(data.items) ? data.items : [];\nconst securityStats = data.security_stats ?? {};\n\nconst buckets = {\n  HOT: [],\n  INSIGHT: [],\n  MONITOR: [],\n};\nfor (const item of items) {\n  const key = ['HOT', 'INSIGHT', 'MONITOR'].includes(item.bucket) ? item.bucket : 'MONITOR';\n  buckets[key].push(item);\n}\n\nconst toLines = (bucketItems) => {\n  if (!bucketItems.length) {\n    return ['- 없음'];\n  }\n  return bucketItems.map((item, index) => {\n    const title = item.title || `Item ${index + 1}`;\n    const url = item.url ? ` (${item.url})` : '';\n    const snippet = item.snippet ? `\\n  - 요약: ${item.snippet}` : '';\n    return `- ${title}${url}${snippet}`;\n  });\n};\n\nconst markdown = [\n  '# Hermes Daily Briefing',\n  '',\n  `- generated_at: ${new Date().toISOString()}`,\n  `- collected_at: ${collectedAt}`,\n  `- query: ${query}`,\n  '',\n  '## HOT',\n  ...toLines(buckets.HOT),\n  '',\n  '## INSIGHT',\n  ...toLines(buckets.INSIGHT),\n  '',\n  '## MONITOR',\n  ...toLines(buckets.MONITOR),\n  '',\n  '## Safety',\n  `- source_provider: ${securityStats.source_provider ?? 'unknown'}`,\n  `- input_count: ${securityStats.input_count ?? 0}`,\n  `- kept_count: ${securityStats.kept_count ?? 0}`,\n  `- dropped_count: ${securityStats.dropped_count ?? 0}`,\n  `- dropped_unsafe_url: ${securityStats.dropped_unsafe_url ?? 0}`,\n  `- prompt_like_removed: ${securityStats.prompt_like_removed ?? 0}`,\n  '',\n  '## 액션 제안',\n  '- Minerva: HOT 항목 우선순위 반영 검토',\n  '- Clio: INSIGHT 항목 문서화/지식베이스 반영',\n].join('\\n');\n\nconst summary = {\n  total: items.length,\n  hot: buckets.HOT.length,\n  insight: buckets.INSIGHT.length,\n  monitor: buckets.MONITOR.length,\n};\n\nreturn [\n  {\n    json: {\n      query,\n      collected_at: collectedAt,\n      generated_at: new Date().toISOString(),\n      items,\n      has_items: items.length > 0,\n      bucket_counts: summary,\n      briefing_markdown: markdown,\n      summary: `total=${summary.total}, hot=${summary.hot}, insight=${summary.insight}, monitor=${summary.monitor}`,\n      security_stats: securityStats,\n    },\n  },\n];"
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst query = data.query ?? '한국 AI 트렌드';\nconst collectedAt = data.collected_at ?? new Date().toISOString();\nconst items = Array.isArray(data.items) ? data.items : [];\nconst securityStats = data.security_stats ?? {};\n\nconst buckets = {\n  HOT: [],\n  INSIGHT: [],\n  MONITOR: [],\n};\nfor (const item of items) {\n  const key = ['HOT', 'INSIGHT', 'MONITOR'].includes(item.bucket) ? item.bucket : 'MONITOR';\n  buckets[key].push(item);\n}\n\nconst summary = {\n  total: items.length,\n  hot: buckets.HOT.length,\n  insight: buckets.INSIGHT.length,\n  monitor: buckets.MONITOR.length,\n};\n\nreturn [\n  {\n    json: {\n      ...data,\n      query,\n      collected_at: collectedAt,\n      generated_at: new Date().toISOString(),\n      items,\n      has_items: items.length > 0,\n      buckets,\n      bucket_counts: summary,\n      summary: `total=${summary.total}, hot=${summary.hot}, insight=${summary.insight}, monitor=${summary.monitor}`,\n      security_stats: securityStats,\n    },\n  },\n];"
+      },
+      "id": "Code_BriefingSummary",
+      "name": "Build Briefing Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst buckets = data.buckets ?? { HOT: [], INSIGHT: [], MONITOR: [] };\nconst securityStats = data.security_stats ?? {};\n\nconst toLines = (bucketItems) => {\n  if (!bucketItems.length) {\n    return ['- 없음'];\n  }\n  return bucketItems.map((item, index) => {\n    const title = item.title || `Item ${index + 1}`;\n    const url = item.url ? ` (${item.url})` : '';\n    const snippet = item.snippet ? `\\n  - 요약: ${item.snippet}` : '';\n    return `- ${title}${url}${snippet}`;\n  });\n};\n\nconst markdown = [\n  '# Hermes Daily Briefing',\n  '',\n  `- generated_at: ${data.generated_at ?? new Date().toISOString()}`,\n  `- collected_at: ${data.collected_at ?? new Date().toISOString()}`,\n  `- query: ${data.query ?? '한국 AI 트렌드'}`,\n  '',\n  '## HOT',\n  ...toLines(buckets.HOT),\n  '',\n  '## INSIGHT',\n  ...toLines(buckets.INSIGHT),\n  '',\n  '## MONITOR',\n  ...toLines(buckets.MONITOR),\n  '',\n  '## Safety',\n  `- source_provider: ${securityStats.source_provider ?? 'unknown'}`,\n  `- input_count: ${securityStats.input_count ?? 0}`,\n  `- kept_count: ${securityStats.kept_count ?? 0}`,\n  `- dropped_count: ${securityStats.dropped_count ?? 0}`,\n  `- dropped_unsafe_url: ${securityStats.dropped_unsafe_url ?? 0}`,\n  `- prompt_like_removed: ${securityStats.prompt_like_removed ?? 0}`,\n  '',\n  '## 액션 제안',\n  '- Minerva: HOT 항목 우선순위 반영 검토',\n  '- Clio: INSIGHT 항목 문서화/지식베이스 반영',\n].join('\\n');\n\nreturn [\n  {\n    json: {\n      ...data,\n      briefing_markdown: markdown,\n    },\n  },\n];"
       },
       "id": "Code_Template",
       "name": "Build Briefing Template",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        780,
+        1000,
         320
       ]
     },
@@ -57,21 +71,49 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        1130,
         320
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const { createHmac, randomBytes } = require('crypto');\n\nconst data = $input.first()?.json ?? {};\nconst buckets = data.bucket_counts ?? { total: 0, hot: 0, insight: 0, monitor: 0 };\nconst orchestrationUrl = $env.ORCHESTRATION_EVENT_URL || 'http://llm-proxy:8000/api/orchestration/events';\nconst internalToken = String($env.INTERNAL_API_TOKEN || '').trim();\nconst signingSecret = String($env.INTERNAL_SIGNING_SECRET || '').trim();\n\nconst sourceRefs = Array.isArray(data.items)\n  ? data.items\n      .filter((item) => item?.title && item?.url)\n      .slice(0, 6)\n      .map((item) => ({\n        title: item.title,\n        url: item.url,\n        snippet: item.snippet ?? undefined,\n        publisher: item.publisher ?? undefined,\n        category: item.category ?? undefined,\n        priorityTier: item.priorityTier ?? data.priority_tier ?? undefined,\n        domain: item.domain ?? undefined,\n      }))\n  : [];\n\nconst orchestration = {\n  attempted: false,\n  url: orchestrationUrl,\n  status: null,\n  ok: null,\n  decision: null,\n  detail: null,\n};\n\nif (!data.skipped) {\n  const priority = Number(buckets.hot ?? 0) > 0 ? 'high' : 'normal';\n  const confidence = Number(buckets.hot ?? 0) > 0 ? 0.84 : 0.72;\n  const tierTag = String(data.priority_tier ?? 'P2').toLowerCase();\n  const topicKey = String(data.query ?? 'hermes-briefing')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .slice(0, 64) || 'hermes-briefing';\n\n  const payload = {\n    schemaVersion: 1,\n    agentId: 'hermes',\n    topicKey,\n    title: `Hermes Briefing: ${String(data.query ?? '').slice(0, 72)}`,\n    summary: data.summary ?? 'Hermes briefing generated',\n    priority,\n    confidence,\n    tags: ['hermes', 'trend', 'briefing', `tier:${tierTag}`],\n    sourceRefs,\n    insightHint: '카테고리 간 연결고리와 파급 영향을 Minerva 관점으로 점검하세요.',\n    payload: {\n      workflow: 'hermes-daily-briefing',\n      fingerprint: data.fingerprint ?? null,\n      bucket_counts: buckets,\n      collected_at: data.collected_at ?? null,\n      generated_at: data.generated_at ?? null,\n      priority_tier: data.priority_tier ?? null,\n      cadence: data.cadence ?? null,\n      schedule_slot: data.schedule_slot ?? null,\n      source_plan: data.source_plan ?? null,\n    },\n  };\n\n  orchestration.attempted = true;\n  try {\n    if (!internalToken || !signingSecret) {\n      throw new Error('internal_auth_not_configured');\n    }\n    const payloadText = JSON.stringify(payload);\n    const timestamp = Math.floor(Date.now() / 1000).toString();\n    const nonce = randomBytes(16).toString('hex');\n    const signature = createHmac('sha256', signingSecret)\n      .update(`${timestamp}.${nonce}.`, 'utf8')\n      .update(payloadText, 'utf8')\n      .digest('hex');\n\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: orchestrationUrl,\n      body: payloadText,\n      headers: {\n        'content-type': 'application/json',\n        'x-internal-token': internalToken,\n        'x-timestamp': timestamp,\n        'x-nonce': nonce,\n        'x-signature': signature,\n      },\n      timeout: 5000,\n      returnFullResponse: true,\n    });\n    orchestration.status = Number(response?.statusCode ?? 0) || null;\n    orchestration.ok = orchestration.status !== null && orchestration.status >= 200 && orchestration.status < 300;\n    let responseBody = response?.body ?? null;\n    if (typeof responseBody === 'string') {\n      try {\n        responseBody = JSON.parse(responseBody);\n      } catch {\n        // keep raw string body for debugging\n      }\n    }\n    orchestration.decision = responseBody?.decision ?? null;\n    orchestration.detail = responseBody;\n  } catch (error) {\n    orchestration.ok = false;\n    orchestration.detail = error?.message ?? 'orchestration_publish_failed';\n  }\n}\n\nreturn [\n  {\n    json: {\n      ok: true,\n      source: 'n8n-local',\n      workflow: 'hermes-daily-briefing',\n      skipped: Boolean(data.skipped),\n      reason: data.skip_reason ?? null,\n      duplicate: Boolean(data.duplicate),\n      fingerprint: data.fingerprint ?? null,\n      summary: data.summary ?? null,\n      bucket_counts: buckets,\n      briefing_markdown: data.skipped ? null : (data.briefing_markdown ?? null),\n      generated_at: data.generated_at ?? new Date().toISOString(),\n      collected_at: data.collected_at ?? null,\n      priority_tier: data.priority_tier ?? null,\n      cadence: data.cadence ?? null,\n      schedule_slot: data.schedule_slot ?? null,\n      source_plan: data.source_plan ?? null,\n      security_stats: data.security_stats ?? null,\n      orchestration,\n    },\n  },\n];"
+        "jsCode": "const data = $input.first()?.json ?? {};\nconst buckets = data.bucket_counts ?? { total: 0, hot: 0, insight: 0, monitor: 0 };\nconst orchestrationUrl = $env.ORCHESTRATION_EVENT_URL || 'http://llm-proxy:8000/api/orchestration/events';\n\nconst sourceRefs = Array.isArray(data.items)\n  ? data.items\n      .filter((item) => item?.title && item?.url)\n      .slice(0, 6)\n      .map((item) => ({\n        title: item.title,\n        url: item.url,\n        snippet: item.snippet ?? undefined,\n        publisher: item.publisher ?? undefined,\n        category: item.category ?? undefined,\n        priorityTier: item.priorityTier ?? data.priority_tier ?? undefined,\n        domain: item.domain ?? undefined,\n      }))\n  : [];\n\nlet orchestrationRequest = null;\nif (!data.skipped) {\n  const priority = Number(buckets.hot ?? 0) > 0 ? 'high' : 'normal';\n  const confidence = Number(buckets.hot ?? 0) > 0 ? 0.84 : 0.72;\n  const tierTag = String(data.priority_tier ?? 'P2').toLowerCase();\n  const topicKey = String(data.query ?? 'hermes-briefing')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .slice(0, 64) || 'hermes-briefing';\n\n  orchestrationRequest = {\n    schemaVersion: 1,\n    agentId: 'hermes',\n    topicKey,\n    title: `Hermes Briefing: ${String(data.query ?? '').slice(0, 72)}`,\n    summary: data.summary ?? 'Hermes briefing generated',\n    priority,\n    confidence,\n    tags: ['hermes', 'trend', 'briefing', `tier:${tierTag}`],\n    sourceRefs,\n    insightHint: '카테고리 간 연결고리와 파급 영향을 Minerva 관점으로 점검하세요.',\n    payload: {\n      workflow: 'hermes-daily-briefing',\n      fingerprint: data.fingerprint ?? null,\n      bucket_counts: buckets,\n      collected_at: data.collected_at ?? null,\n      generated_at: data.generated_at ?? null,\n      priority_tier: data.priority_tier ?? null,\n      cadence: data.cadence ?? null,\n      schedule_slot: data.schedule_slot ?? null,\n      source_plan: data.source_plan ?? null,\n    },\n  };\n}\n\nreturn [\n  {\n    json: {\n      ...data,\n      source_refs: sourceRefs,\n      orchestration_url: orchestrationUrl,\n      orchestration_request: orchestrationRequest,\n    },\n  },\n];"
+      },
+      "id": "Code_OrchestrationPayload",
+      "name": "Build Orchestration Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const { createHmac, randomBytes } = require('crypto');\n\nconst data = $input.first()?.json ?? {};\nconst orchestrationUrl = data.orchestration_url || ($env.ORCHESTRATION_EVENT_URL || 'http://llm-proxy:8000/api/orchestration/events');\nconst internalToken = String($env.INTERNAL_API_TOKEN || '').trim();\nconst signingSecret = String($env.INTERNAL_SIGNING_SECRET || '').trim();\nconst requestPayload = data.orchestration_request;\n\nconst orchestration = {\n  attempted: false,\n  url: orchestrationUrl,\n  status: null,\n  ok: null,\n  decision: null,\n  detail: null,\n};\n\nif (requestPayload) {\n  orchestration.attempted = true;\n  try {\n    if (!internalToken || !signingSecret) {\n      throw new Error('internal_auth_not_configured');\n    }\n    const payloadText = JSON.stringify(requestPayload);\n    const timestamp = Math.floor(Date.now() / 1000).toString();\n    const nonce = randomBytes(16).toString('hex');\n    const signature = createHmac('sha256', signingSecret)\n      .update(`${timestamp}.${nonce}.`, 'utf8')\n      .update(payloadText, 'utf8')\n      .digest('hex');\n\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: orchestrationUrl,\n      body: payloadText,\n      headers: {\n        'content-type': 'application/json',\n        'x-internal-token': internalToken,\n        'x-timestamp': timestamp,\n        'x-nonce': nonce,\n        'x-signature': signature,\n      },\n      timeout: 5000,\n      returnFullResponse: true,\n    });\n    orchestration.status = Number(response?.statusCode ?? 0) || null;\n    orchestration.ok = orchestration.status !== null && orchestration.status >= 200 && orchestration.status < 300;\n    let responseBody = response?.body ?? null;\n    if (typeof responseBody === 'string') {\n      try {\n        responseBody = JSON.parse(responseBody);\n      } catch {\n        // keep raw string body for debugging\n      }\n    }\n    orchestration.decision = responseBody?.decision ?? null;\n    orchestration.detail = responseBody;\n  } catch (error) {\n    orchestration.ok = false;\n    orchestration.detail = error?.message ?? 'orchestration_publish_failed';\n  }\n}\n\nreturn [\n  {\n    json: {\n      ...data,\n      orchestration,\n    },\n  },\n];"
+      },
+      "id": "Code_PublishOrchestration",
+      "name": "Publish Orchestration Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1490,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $input.first()?.json ?? {};\n\nreturn [\n  {\n    json: {\n      ok: true,\n      source: 'n8n-local',\n      workflow: 'hermes-daily-briefing',\n      skipped: Boolean(data.skipped),\n      reason: data.skip_reason ?? null,\n      duplicate: Boolean(data.duplicate),\n      fingerprint: data.fingerprint ?? null,\n      summary: data.summary ?? null,\n      bucket_counts: data.bucket_counts ?? { total: 0, hot: 0, insight: 0, monitor: 0 },\n      briefing_markdown: data.skipped ? null : (data.briefing_markdown ?? null),\n      generated_at: data.generated_at ?? new Date().toISOString(),\n      collected_at: data.collected_at ?? null,\n      priority_tier: data.priority_tier ?? null,\n      cadence: data.cadence ?? null,\n      schedule_slot: data.schedule_slot ?? null,\n      source_plan: data.source_plan ?? null,\n      security_stats: data.security_stats ?? null,\n      orchestration: data.orchestration ?? null,\n    },\n  },\n];"
       },
       "id": "Code_Response",
       "name": "Build API Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1260,
+        1720,
         320
       ]
     },
@@ -86,7 +128,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        1500,
+        1940,
         320
       ]
     },
@@ -230,7 +272,7 @@
       "main": [
         [
           {
-            "node": "Build Briefing Template",
+            "node": "Build Briefing Summary",
             "type": "main",
             "index": 0
           }
@@ -252,7 +294,7 @@
       "main": [
         [
           {
-            "node": "Build API Response",
+            "node": "Build Orchestration Payload",
             "type": "main",
             "index": 0
           }
@@ -341,6 +383,39 @@
         [
           {
             "node": "Build Briefing Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Briefing Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Briefing Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Orchestration Payload": {
+      "main": [
+        [
+          {
+            "node": "Publish Orchestration Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Orchestration Event": {
+      "main": [
+        [
+          {
+            "node": "Build API Response",
             "type": "main",
             "index": 0
           }

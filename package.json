@@ -17,6 +17,7 @@
     "verify:runtime:drift": "bash scripts/verify/check-runtime-drift.sh",
     "verify:daily": "bash scripts/verify/run-daily-runtime-check.sh",
     "verify:morning:preflight": "bash scripts/verify/check-morning-briefing-preflight.sh",
+    "verify:morning:report": "bash scripts/verify/report-morning-briefing-observations.sh",
     "verify:morning:gcal": "bash scripts/verify/check-morning-calendar-attach.sh",
     "verify:memory": "bash scripts/verify/check-memory-markdown.sh",
     "verify:clio-e2e": "bash scripts/verify/check-clio-pipeline-e2e.sh",
@@ -41,6 +42,7 @@
     "telegram:dead-letter:replay": "bash scripts/telegram/replay-dead-letter.sh",
     "telegram:rehearsal:send": "bash scripts/telegram/send-rehearsal-briefing.sh",
     "n8n:cleanup": "bash scripts/n8n/cleanup-duplicate-workflows.sh",
+    "n8n:cleanup:executions": "bash scripts/n8n/cleanup-execution-data.sh",
     "n8n:purge:inactive": "bash scripts/n8n/purge-inactive-duplicate-workflows.sh",
     "verify:llm-runtime": "bash scripts/verify/check-llm-runtime.sh",
     "n8n:reset-singleton": "bash scripts/n8n/reset-workflows-to-singleton.sh"
