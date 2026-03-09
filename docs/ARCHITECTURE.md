@@ -219,9 +219,9 @@ sequenceDiagram
 | 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
 | 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 역할/메모리 컨텍스트 조립 | `proxy/app/role_runtime.py`, `proxy/app/main.py` |
-| morning briefing 관찰 로그 | `proxy/app/orch_memory.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| morning briefing 관찰 로그 | `proxy/app/orch_runtime_state.py`, `proxy/app/orch_store.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_runtime_state.py`, `proxy/app/orch_minerva_memory.py`, `proxy/app/orch_role_memories.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_state.py` |
 | n8n execution cleanup | `scripts/n8n/cleanup-execution-data.sh` |
-
 ## 7) Hermes Daily Workflow 구조
 
 현재 `Hermes Daily Briefing Workflow`는 아래 단위로 나뉩니다.
@@ -237,10 +237,6 @@ sequenceDiagram
 의도
 - 수집/요약/템플릿/서명/전송/응답을 분리해서 drift와 복붙을 줄임
 - `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
-| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_memory.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_state.py` |
-| Google Calendar read-only 통합 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
-| Clio template-driven note 생성 | `agent/clio_pipeline.py`, `agent/clio_core.py`, `agent/clio_render.py`, `agent/clio_notebooklm.py`, `agent/main.py` |
-| n8n 부트스트랩 | `scripts/n8n/*.sh`, `n8n/workflows/*.json` |
 
 ## 7) 현재 의도적으로 제외된 것
 - Telegram 외 채널 추상화(Slack/Email)
@@ -261,4 +257,4 @@ sequenceDiagram
 3. `agent/main.py`
 - watcher / inbox I/O / archive / quarantine / runtime orchestration 책임이 남아 있다
 
-즉, 현재 아키텍처는 ingress, approval/clio-state, Clio render/NotebookLM 경계까지 분리됐고, 다음 리팩터링 과제는 `orch_memory` 세분화와 `Clio inference` 축소입니다.
+즉, 현재 아키텍처는 ingress, approval/clio-state, runtime memory, Clio render/NotebookLM 경계까지 분리됐고, 다음 리팩터링 과제는 `orch_store` façade 축소와 `Clio inference` 추가 분리입니다.
