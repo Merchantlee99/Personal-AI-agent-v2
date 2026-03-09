@@ -1,5 +1,8 @@
 # NanoClaw v2 Commit Baseline
 
+상태: **역사 문서**  
+중요: 이 문서는 커밋/리뷰 기준의 기록이며, 현재 실작동 구조 설명은 `README.md`, `docs/ARCHITECTURE.md`, `docs/OPERATIONS_PLAYBOOK.md`를 기준으로 봅니다.
+
 대상 원격 저장소: [Personal-AI-agent-v2](https://github.com/Merchantlee99/Personal-AI-agent-v2.git)  
 기준 날짜: 2026-03-06  
 원칙: Canonical ID only, 단일 LLM 게이트, 역할 경계 고정, Telegram-only 운영.

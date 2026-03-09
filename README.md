@@ -36,6 +36,11 @@ flowchart LR
   TGC --> MEM
 ```
 
+## 현재 실작동 판단
+- 현재 구조는 **작동 중인 Telegram-first 런타임**으로 볼 수 있습니다.
+- 핵심 경로인 `n8n schedule -> /api/orchestration/events -> Minerva Telegram 브리핑`은 E2E 검증을 통과했고, 실제 morning briefing observation 로그도 누적 중입니다.
+- 다만 **7일 연속 실운영 성공 데이터는 아직 쌓는 중**이므로, 완전한 운영 신뢰성 증명은 진행 중입니다.
+
 ## 지금 구현된 것
 - Telegram 일반 대화: `/help`, `/reset`, Minerva 대화, rate-limit, history
 - Telegram 인라인 버튼 3종
@@ -127,16 +132,27 @@ npm run n8n:cleanup:executions
 
 ## 문서 읽는 순서
 
+### 활성 문서
 | 문서 | 질문 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 컴포넌트가 어떻게 연결되고 어떤 데이터가 어디에 남는가? |
 | [docs/SECURITY_BASELINE.md](docs/SECURITY_BASELINE.md) | 어떤 위협을 어떤 통제로 막는가? |
 | [docs/OPERATIONS_PLAYBOOK.md](docs/OPERATIONS_PLAYBOOK.md) | 오늘 바로 어떻게 기동/검증/장애대응할 것인가? |
 | [docs/IMPLEMENTATION_COVERAGE.md](docs/IMPLEMENTATION_COVERAGE.md) | 지금 완료/부분완료/미완료는 무엇인가? |
+| [docs/USE_CASES.md](docs/USE_CASES.md) | 실제 사용자 입력이 어떤 산출물로 이어지는가? |
 | [docs/MINERVA_PERSONA_SPEC.md](docs/MINERVA_PERSONA_SPEC.md) | Minerva는 어떤 톤과 구조로 답해야 하는가? |
 | [docs/CLIO_V2_SPEC.md](docs/CLIO_V2_SPEC.md) | Clio는 어떤 노트를 어떻게 만들어야 하는가? |
 | [docs/MEMORY_SPLIT_SPEC.md](docs/MEMORY_SPLIT_SPEC.md) | runtime timeline, working memory, knowledge memory를 어떻게 분리하는가? |
-| [docs/AGENT_SHARED_PIPELINE.md](docs/AGENT_SHARED_PIPELINE.md) | 에이전트가 raw 대화 대신 어떤 artifact를 주고받는가? |
+
+### 계획/참고 문서
+| 문서 | 성격 |
+|---|---|
+| [docs/AGENT_SHARED_PIPELINE.md](docs/AGENT_SHARED_PIPELINE.md) | 현재 구조 + 향후 Aegis 포함 파이프라인 설계 |
+| [docs/PRE_VPS_GATES.md](docs/PRE_VPS_GATES.md) | VPS 이전 체크리스트 |
+| [docs/AEGIS_PLAN.md](docs/AEGIS_PLAN.md) | 미배포 감시/control-plane 설계 |
+| [docs/PLAN_V2.md](docs/PLAN_V2.md) | 초기 기획 기록 |
+| [docs/COMMIT_BASELINE_V2.md](docs/COMMIT_BASELINE_V2.md) | 당시 기준 커밋/리뷰 원칙 기록 |
+| [docs/ORB_RENDER_TUNING.md](docs/ORB_RENDER_TUNING.md) | 폐기된 프론트 실험 기록 |
 
 ## 현재 운영 최소 조건
 1. 컨테이너 Up: `nanoclaw-llm-proxy`, `nanoclaw-telegram-poller`, `nanoclaw-agent`, `nanoclaw-n8n`

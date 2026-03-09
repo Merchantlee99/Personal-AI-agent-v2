@@ -117,7 +117,7 @@ flowchart LR
 | 내부 요청 위조 | token + HMAC + timestamp + nonce | `proxy/app/security.py` |
 | replay 공격 | nonce TTL + 재사용 차단 | `proxy/app/security.py` |
 | 내부 이벤트 위조 | `/api/orchestration/events` internal auth 필수 | `proxy/app/main.py`, `scripts/runtime/internal-api-request.sh` |
-| 내부 chat/metrics 오용 | `/api/chat`, `/api/runtime-metrics` internal auth 필수 | `proxy/app/main.py`, `scripts/runtime/internal-api-request.sh` |
+| 내부 chat/metrics 오용 | `/api/chat`, `/api/runtime-metrics` internal auth 필수 | `proxy/app/http_routes.py`, `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | Telegram 오용 | secret + allowlist + action allowlist + approval queue | `proxy/app/main.py`, `proxy/app/telegram_bridge.py` |
 | poller 유실 은닉 | dead-letter 기록 + offset 분리 | `proxy/app/telegram_poller.py` |
 | prompt injection | 패턴 제거 + inert data contract | `n8n/workflows/*.json`, `proxy/app/search_client.py` |
@@ -126,7 +126,7 @@ flowchart LR
 | 과권한 컨테이너 | read_only/cap_drop/no-new-privileges | `docker-compose.yml` |
 | user vault 오염 | Clio-only write + runtime/support 분리 | `agent/runtime_worker.py`, `shared_data/*` |
 | 잘못된 worker 라우팅 | unknown `agent_id` quarantine, no silent Minerva fallback | `agent/runtime_worker.py` |
-| Clio 승인 경로의 과도한 쓰기 | `obsidian_vault` subtree로 write boundary 고정 | `proxy/app/orch_store.py` |
+| Clio 승인 경로의 과도한 쓰기 | `obsidian_vault` subtree로 write boundary 고정 | `proxy/app/orch_clio_common.py`, `proxy/app/orch_clio_reviews.py`, `proxy/app/orch_clio_suggestions.py` |
 | host secret 평문 노출 | Keychain/1Password ref + compose wrapper | `scripts/runtime/*.sh` |
 
 ## 10) 현재 남은 보안 리스크

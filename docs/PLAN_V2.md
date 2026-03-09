@@ -1,5 +1,8 @@
 # NanoClaw Agent System v2 기획서 (보완안)
 
+상태: **초기 기획 문서**  
+중요: 이 문서는 설계 출발점 기록입니다. 현재 실작동 범위는 `README.md`, `docs/IMPLEMENTATION_COVERAGE.md`, `docs/USE_CASES.md`를 기준으로 봅니다.
+
 ## 1) 목적
 - 기존 NanoClaw 아키텍처의 강점(에어갭 분리, 프록시 게이트, 파일 버스)을 유지
 - 스파게티 원인이었던 역할 경계 불명확, ID/표시명 혼선, 채널별 맥락 단절을 해소

@@ -1,5 +1,8 @@
 # NanoClaw v2 Agent Shared Pipeline
 
+상태: **부분 실구현 + 부분 계획 문서**  
+중요: `Minerva/Clio/Hermes` 아티팩트 계약은 현재 구조와 맞지만, `Aegis` 관련 내용은 아직 계획 단계입니다.
+
 이 문서는 `Minerva` 단일 UX 아래에서 `Clio`, `Hermes`, `Aegis`가 어떤 계약으로 협업하는지 정의합니다.
 
 ## 1) 운영 원칙
