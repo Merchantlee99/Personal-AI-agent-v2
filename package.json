@@ -18,6 +18,8 @@
     "verify:daily": "bash scripts/verify/run-daily-runtime-check.sh",
     "verify:morning:preflight": "bash scripts/verify/check-morning-briefing-preflight.sh",
     "verify:morning:report": "bash scripts/verify/report-morning-briefing-observations.sh",
+    "verify:morning:observe": "bash scripts/verify/run-morning-briefing-observation.sh",
+    "verify:morning:bundle": "bash scripts/verify/collect-morning-briefing-failure-bundle.sh",
     "verify:morning:gcal": "bash scripts/verify/check-morning-calendar-attach.sh",
     "verify:memory": "bash scripts/verify/check-memory-markdown.sh",
     "verify:clio-e2e": "bash scripts/verify/check-clio-pipeline-e2e.sh",

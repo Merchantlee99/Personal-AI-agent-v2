@@ -59,6 +59,16 @@ morning briefing 관찰 요약
 npm run verify:morning:report
 ```
 
+오늘 아침 성공 여부 스냅샷
+```bash
+npm run verify:morning:observe
+```
+
+실패 번들 수집
+```bash
+npm run verify:morning:bundle
+```
+
 참고
 - `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 active workflow가 현재 파일과 동일하면 no-op으로 종료합니다.
 - 즉, 반복 검증이 n8n 재시작을 자동으로 유발하지 않습니다.
@@ -278,11 +288,29 @@ Clio note suggestion
 npm run verify:morning:report
 ```
 
+일일 스냅샷 명령
+```bash
+npm run verify:morning:observe
+```
+
 포함 항목
 - 관찰 윈도우 일수
 - observed events / observed days
 - successful days / success rate
 - latest observation
+
+스냅샷 파일
+- `shared_data/logs/morning-briefing-report-*.json`
+- latest symlink: `shared_data/logs/morning-briefing-report.latest.json`
+
+실패 시 번들 수집
+```bash
+npm run verify:morning:bundle
+```
+
+실패 번들 경로
+- `shared_data/logs/morning-briefing-failure-<timestamp>/`
+- latest pointer: `shared_data/logs/morning-briefing-failure-bundle.latest`
 
 ## 12) n8n Execution Data 정리
 
