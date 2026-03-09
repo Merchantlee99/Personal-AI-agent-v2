@@ -212,13 +212,14 @@ sequenceDiagram
 
 | 기능 | 구현 파일 |
 |---|---|
-| Telegram webhook 처리 | `proxy/app/main.py` |
+| Telegram webhook/chat/runtime HTTP 라우트 | `proxy/app/http_routes.py`, `proxy/app/main.py` |
 | Telegram polling bridge | `proxy/app/telegram_poller.py` |
 | Minerva prompt/톤/모델 라우팅 | `proxy/app/llm_client.py`, `config/personas.json` |
 | 정책 엔진(임계값/쿨다운/다이제스트) | `proxy/app/orch_policy.py` |
 | 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
 | 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
-| morning briefing 관찰 로그 | `proxy/app/orch_store.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| 역할/메모리 컨텍스트 조립 | `proxy/app/role_runtime.py`, `proxy/app/main.py` |
+| morning briefing 관찰 로그 | `proxy/app/orch_memory.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
 | n8n execution cleanup | `scripts/n8n/cleanup-execution-data.sh` |
 
 ## 7) Hermes Daily Workflow 구조
@@ -236,9 +237,9 @@ sequenceDiagram
 의도
 - 수집/요약/템플릿/서명/전송/응답을 분리해서 drift와 복붙을 줄임
 - `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
-| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py` |
+| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_memory.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_state.py` |
 | Google Calendar read-only 통합 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
-| Clio template-driven note 생성 | `agent/main.py` |
+| Clio template-driven note 생성 | `agent/clio_pipeline.py`, `agent/main.py` |
 | n8n 부트스트랩 | `scripts/n8n/*.sh`, `n8n/workflows/*.json` |
 
 ## 7) 현재 의도적으로 제외된 것
@@ -251,13 +252,13 @@ sequenceDiagram
 ## 8) 현재 구조적 리스크
 즉시 운영을 막는 수준은 아니지만, 다음 3개는 유지보수 리스크입니다.
 
-1. `proxy/app/main.py`
-- Telegram webhook, chat, orchestration, calendar, approval 로직이 한 파일에 큼
+1. `proxy/app/orch_store.py`
+- facade 자체는 가벼워졌지만 approval / clio state / memory adapter가 여전히 결합된 경계 역할을 한다
 
-2. `proxy/app/orch_store.py`
-- memory, review queue, suggestion queue, vault state update가 한 파일에 큼
+2. `agent/clio_pipeline.py`
+- Clio 분류, 제목/요약 생성, 템플릿 렌더, 재사용 판단이 한 모듈에 모여 있다
 
 3. `agent/main.py`
-- Clio 분류, 템플릿 렌더, 파일 라우팅, verified payload 생성이 한 파일에 큼
+- watcher / inbox I/O / archive / quarantine / runtime orchestration 책임이 남아 있다
 
-즉, 현재 아키텍처는 보안 경계는 강화됐지만 애플리케이션 코드 레벨에서는 대형 모듈 분리가 다음 리팩터링 과제입니다.
+즉, 현재 아키텍처는 ingress와 역할/메모리 컨텍스트는 분리됐고, 다음 리팩터링 과제는 `orch_store` adapter 경계와 `Clio pipeline` 세분화입니다.
