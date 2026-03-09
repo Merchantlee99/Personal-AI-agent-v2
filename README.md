@@ -11,6 +11,7 @@ NanoClaw v2는 `minerva`, `clio`, `hermes` 3개 역할을 분리해 운영하는
 - 외부 수집 결과는 명령이 아니라 데이터로만 처리
 - 최소 권한 런타임: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, `tmpfs`
 - 사용자용 Obsidian vault와 agent/runtime/support 데이터를 분리
+- 알 수 없는 worker `agent_id`는 Minerva fallback 없이 quarantine 처리
 
 ## 한눈에 보는 구조
 ```mermaid
@@ -73,6 +74,10 @@ flowchart LR
 - verification artifact
 - agent support/template file
 - queue/raw state/log
+
+검증 원칙
+- `verify:smoke`는 Clio vault가 아니라 Hermes runtime note 경로만 건드리고 cleanup 합니다.
+- `verify:clio:format`과 `verify:clio-e2e`는 자기 artifact를 만들고 검증 후 삭제합니다.
 
 runtime/support 경로:
 - [shared_data/runtime_agent_notes](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime_agent_notes)

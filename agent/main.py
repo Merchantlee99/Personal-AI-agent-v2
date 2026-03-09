@@ -177,7 +177,7 @@ def normalize_agent_id(raw: str) -> RoutingResult:
     token = raw.strip().lower()
     if token in CANONICAL_IDS:
         return RoutingResult(agent_id=token, fallback_used=False)
-    return RoutingResult(agent_id="minerva", fallback_used=True)
+    raise ValueError(f"unknown agent_id: {raw.strip() or '<empty>'}")
 
 
 def ensure_dir(path: Path) -> None:
@@ -1424,6 +1424,32 @@ def process_file(
     shutil.move(str(path), archived_path)
 
 
+def quarantine_file(path: Path, archive_dir: Path, reason: str) -> None:
+    if not path.exists() or not path.is_file():
+        return
+
+    now = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    quarantine_dir = archive_dir / "quarantine" / datetime.now(UTC).strftime("%Y-%m-%d")
+    ensure_dir(quarantine_dir)
+
+    target = quarantine_dir / f"{now}-{path.name}"
+    shutil.move(str(path), target)
+
+    error_sidecar = target.with_suffix(target.suffix + ".error.json")
+    error_sidecar.write_text(
+        json.dumps(
+            {
+                "reason": reason,
+                "quarantined_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "file": target.name,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def process_pending_files(
     inbox_dir: Path,
     outbox_dir: Path,
@@ -1446,6 +1472,9 @@ def process_pending_files(
                 verified_inbox_dir,
             )
             print(f"[nanoclaw-agent] processed(poll): {target.name}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            quarantine_file(target, archive_dir, str(exc))
+            print(f"[nanoclaw-agent] quarantined(poll): {target.name} ({exc})")
         except FileNotFoundError:
             continue
         except Exception as exc:  # noqa: BLE001
@@ -1486,6 +1515,9 @@ class InboxHandler(FileSystemEventHandler):
                 self.verified_inbox_dir,
             )
             print(f"[nanoclaw-agent] processed: {target.name}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            quarantine_file(target, self.archive_dir, str(exc))
+            print(f"[nanoclaw-agent] quarantined: {target.name} ({exc})")
         except Exception as exc:  # noqa: BLE001
             print(f"[nanoclaw-agent] failed: {target.name} ({exc})")
 

@@ -16,6 +16,7 @@
 - 내부 이벤트 입력(`/api/orchestration/events`)은 HMAC 서명 없이는 거부됩니다.
 - 사용자용 Obsidian vault는 [shared_data/obsidian_vault](/Users/isanginn/Workspace/Agent_Workspace/shared_data/obsidian_vault) 입니다.
 - runtime note는 [shared_data/runtime_agent_notes](/Users/isanginn/Workspace/Agent_Workspace/shared_data/runtime_agent_notes) 에 저장됩니다.
+- 잘못된 inbox `agent_id`는 Minerva로 강등되지 않고 `archive/quarantine`으로 이동합니다.
 
 ## 2) Day-1 기동 순서
 
@@ -91,6 +92,11 @@ npm run verify:morning:preflight
 npm run security:check-orchestration
 npm run verify:llm-usage
 ```
+
+검증 artifact 규칙
+- `verify:smoke`는 user-facing vault를 건드리지 않습니다.
+- `verify:clio:format`은 임시 Clio artifact를 생성하고 검증 후 cleanup 합니다.
+- `verify:clio-e2e`도 synthetic article/paper artifact를 cleanup 합니다.
 
 주간 점검
 ```bash

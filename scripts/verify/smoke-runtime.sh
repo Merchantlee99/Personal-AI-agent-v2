@@ -129,7 +129,7 @@ cat /tmp/nanoclaw_smoke_webhook.json
 
 echo "[smoke] watchdog check"
 cat > "shared_data/inbox/$INBOX_FILE" <<JSON
-{"agent_id":"clio","message":"smoke watchdog","source":"smoke-runtime"}
+{"agent_id":"hermes","message":"smoke runtime watchdog","source":"smoke-runtime"}
 JSON
 
 processed=0
@@ -149,6 +149,21 @@ fi
 
 latest_outbox="$(ls -1t shared_data/outbox | grep "$INBOX_FILE" | head -n 1)"
 cat "shared_data/outbox/$latest_outbox"
+
+python3 - <<'PY' "shared_data/outbox/$latest_outbox"
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+vault_file = payload.get("vault_file")
+if isinstance(vault_file, str) and vault_file.startswith("runtime_agent_notes/"):
+    target = pathlib.Path("shared_data") / vault_file
+    if target.exists():
+        target.unlink()
+PY
+rm -f "shared_data/outbox/$latest_outbox"
+find shared_data/archive -type f -name "*-${INBOX_FILE}" -delete
 
 echo "[smoke] security flags check"
 docker inspect nanoclaw-agent --format 'agent: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'

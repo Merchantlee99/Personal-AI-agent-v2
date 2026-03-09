@@ -13,6 +13,20 @@ API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 REBUILD_AGENT="${CLIO_E2E_REBUILD_AGENT:-false}"
+LATEST_FILE=""
+VAULT_FILE=""
+
+cleanup() {
+  if [[ -n "${LATEST_FILE:-}" && -f "${LATEST_FILE}" ]]; then
+    rm -f "${LATEST_FILE}"
+  fi
+  if [[ -n "${VAULT_FILE:-}" && -f "${VAULT_FILE}" ]]; then
+    rm -f "${VAULT_FILE}"
+  fi
+  find shared_data/outbox -type f -name "*${RUN_ID}*.json" -delete 2>/dev/null || true
+  find shared_data/archive -type f -name "*${RUN_ID}*.json" -delete 2>/dev/null || true
+}
+trap cleanup EXIT
 
 count_verified_files() {
   python3 - <<'PY'
@@ -144,5 +158,13 @@ assert "deepl" in payload, "deepl block missing"
 assert "notebooklm" in payload and payload["notebooklm"].get("ready") is True, "notebooklm ready missing"
 print("[clio-e2e] verified payload schema validated")
 PY
+
+VAULT_FILE="shared_data/$(python3 - <<'PY' "$LATEST_FILE"
+import json, sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(payload["notebooklm"]["vault_file"])
+PY
+)"
 
 echo "[clio-e2e] PASS"

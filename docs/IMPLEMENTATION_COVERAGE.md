@@ -6,6 +6,7 @@
 - Next.js 프론트 경로를 제거하고 `llm-proxy` 단일 진입 구조로 정리 완료
 - Telegram polling, internal HMAC chain, 최소권한 컨테이너, Tavily allowlist 적용 완료
 - `/api/chat`, `/api/runtime-metrics`, `/api/orchestration/events` internal auth 강제, fail-closed secret 로드, Clio vault write boundary 고정 완료
+- worker unknown `agent_id` quarantine, smoke/Clio verification self-cleanup 적용 완료
 - morning preflight를 read-only 점검으로 분리 완료
 - Hermes daily workflow code node 분리(`summary/template/payload/publish/response`) 완료
 - morning briefing observation log/report 경로 추가 완료
@@ -39,6 +40,8 @@
 | Clio review/suggestion/approval | 완료 | `proxy/app/main.py`, `proxy/app/orch_store.py`, `scripts/verify/check-clio-*.sh` |
 | user-facing vault / runtime note 분리 | 완료 | `agent/main.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
 | Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_store.py` |
+| worker unknown `agent_id` quarantine | 완료 | `agent/main.py` |
+| smoke/Clio verification artifact self-cleanup | 완료 | `scripts/verify/smoke-runtime.sh`, `scripts/verify/check-clio-format-contract.sh`, `scripts/verify/check-clio-pipeline-e2e.sh` |
 | 통합 운영 메트릭 API | 완료 | `proxy/app/main.py` (`/api/runtime-metrics`) |
 | morning briefing observation report | 완료 | `proxy/app/orch_store.py`, `scripts/verify/report-morning-briefing-observations.sh` |
 | n8n execution cleanup / retention | 완료 | `scripts/n8n/cleanup-execution-data.sh` |

@@ -29,6 +29,7 @@ flowchart LR
 - 외부 입력은 실행 지시가 아닌 데이터로만 취급합니다.
 - user-facing vault에는 Clio note만 씁니다.
 - Minerva/Hermes runtime markdown, queue/raw state, support file은 vault 밖에 둡니다.
+- 잘못된 worker `agent_id`는 Minerva fallback 없이 quarantine 합니다.
 
 ## 3) 내부 요청 인증/무결성 체인
 
@@ -124,6 +125,7 @@ flowchart LR
 | Tavily API base 오염 | https + allowlisted host 강제 | `proxy/app/search_client.py` |
 | 과권한 컨테이너 | read_only/cap_drop/no-new-privileges | `docker-compose.yml` |
 | user vault 오염 | Clio-only write + runtime/support 분리 | `agent/main.py`, `shared_data/*` |
+| 잘못된 worker 라우팅 | unknown `agent_id` quarantine, no silent Minerva fallback | `agent/main.py` |
 | Clio 승인 경로의 과도한 쓰기 | `obsidian_vault` subtree로 write boundary 고정 | `proxy/app/orch_store.py` |
 | host secret 평문 노출 | Keychain/1Password ref + compose wrapper | `scripts/runtime/*.sh` |
 

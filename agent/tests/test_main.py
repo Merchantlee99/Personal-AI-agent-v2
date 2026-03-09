@@ -11,7 +11,7 @@ FIXTURE_CONFIG = Path(__file__).resolve().parent / "fixtures" / "agents.json"
 os.environ.setdefault("AGENT_CONFIG_PATH", str(FIXTURE_CONFIG))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from main import process_file
+from main import process_file, process_pending_files
 
 
 class AgentPipelineTests(unittest.TestCase):
@@ -268,6 +268,33 @@ class AgentPipelineTests(unittest.TestCase):
             memory_payload = json.loads(memory_path.read_text(encoding="utf-8"))
             self.assertEqual(memory_payload["recentNotes"][0]["type"], "knowledge")
             self.assertTrue(memory_payload["recentNotes"][0]["claimReviewRequired"])
+
+    def test_unknown_agent_is_quarantined_instead_of_falling_back_to_minerva(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox, outbox, archive, vault, verified = self._make_dirs(root)
+
+            payload_file = inbox / "unknown-agent.json"
+            payload_file.write_text(
+                json.dumps(
+                    {
+                        "agent_id": "owl",
+                        "source": "unit-test",
+                        "message": "legacy alias should not silently become minerva",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            process_pending_files(inbox, outbox, archive, vault, verified)
+
+            self.assertEqual(list(outbox.glob("*.json")), [])
+            self.assertEqual(list(verified.glob("*.json")), [])
+            quarantine_files = list((archive / "quarantine").rglob("unknown-agent.json"))
+            self.assertEqual(len(quarantine_files), 1)
+            error_sidecars = list((archive / "quarantine").rglob("unknown-agent.json.error.json"))
+            self.assertEqual(len(error_sidecars), 1)
 
     def test_clio_pipeline_marks_update_candidate_when_matching_note_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
