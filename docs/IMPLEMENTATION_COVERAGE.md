@@ -32,14 +32,14 @@
 | 승인 큐(2단계 확인 + TTL) | 완료 | `proxy/app/orch_store.py`, `proxy/app/orch_approval.py`, `proxy/app/main.py` |
 | Event Contract(JSON Schema + 버전 검증) | 완료 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
 | Minerva working memory 주입 | 완료 | `proxy/app/orch_minerva_memory.py`, `proxy/app/role_runtime.py`, `proxy/app/main.py` |
-| Clio knowledge memory / Hermes evidence memory | 완료(경량 summary 기준) | `proxy/app/orch_role_memories.py`, `proxy/app/orch_clio_state.py` |
+| Clio knowledge memory / Hermes evidence memory | 완료(경량 summary 기준) | `proxy/app/orch_role_memories.py`, `proxy/app/orch_clio_suggestions.py` |
 | Minerva 정책 엔진(임계/쿨다운/다이제스트) | 완료 | `proxy/app/orch_policy.py`, `proxy/app/main.py` |
 | Google Calendar read-only 연동(Telegram-only) | 완료 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
 | DeepL 선택 번역 최적화 | 완료 | `proxy/app/telegram_bridge.py`, `agent/clio_notebooklm.py`, `agent/clio_pipeline.py`, `agent/runtime_worker.py` |
 | Clio template-driven Obsidian/verified_inbox 파이프라인 | 완료 | `agent/clio_core.py`, `agent/clio_render.py`, `agent/clio_pipeline.py`, `agent/runtime_worker.py`, `shared_data/verified_inbox` |
-| Clio review/suggestion/approval | 완료 | `proxy/app/main.py`, `proxy/app/orch_store.py`, `proxy/app/orch_clio_state.py`, `scripts/verify/check-clio-*.sh` |
+| Clio review/suggestion/approval | 완료 | `proxy/app/main.py`, `proxy/app/orch_store.py`, `proxy/app/orch_clio_reviews.py`, `proxy/app/orch_clio_suggestions.py`, `proxy/app/orch_clio_state.py`, `scripts/verify/check-clio-*.sh` |
 | user-facing vault / runtime note 분리 | 완료 | `agent/runtime_worker.py`, `agent/clio_pipeline.py`, `agent/clio_render.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
-| Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_clio_state.py` |
+| Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_clio_common.py`, `proxy/app/orch_clio_reviews.py`, `proxy/app/orch_clio_suggestions.py` |
 | worker unknown `agent_id` quarantine | 완료 | `agent/runtime_worker.py` |
 | smoke/Clio verification artifact self-cleanup | 완료 | `scripts/verify/smoke-runtime.sh`, `scripts/verify/check-clio-format-contract.sh`, `scripts/verify/check-clio-pipeline-e2e.sh` |
 | 통합 운영 메트릭 API | 완료 | `proxy/app/http_routes.py` (`/api/runtime-metrics`) |

@@ -11,22 +11,41 @@ INBOX_FILE="smoke-${SMOKE_ID}.json"
 SIGNED_HELPER="bash scripts/runtime/internal-api-request.sh"
 
 wait_for_container_health() {
-  local container="$1"
+  local service="$1"
   local retries="${2:-20}"
   local sleep_sec="${3:-1}"
+  local container_id=""
+  local status=""
 
   for _ in $(seq 1 "$retries"); do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
+    container_id="$(docker compose ps -q "$service" 2>/dev/null || true)"
+    if [[ -z "$container_id" ]]; then
+      sleep "$sleep_sec"
+      continue
+    fi
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
     if [[ "$status" == "healthy" || "$status" == "running" ]]; then
       return 0
     fi
     sleep "$sleep_sec"
   done
 
-  echo "[smoke] $container is not ready (status=$status)" >&2
+  echo "[smoke] $service is not ready (status=$status container_id=$container_id)" >&2
   compose_cmd logs --tail=40 >/tmp/nanoclaw_smoke_container_logs.txt 2>&1 || true
   cat /tmp/nanoclaw_smoke_container_logs.txt >&2 || true
   return 1
+}
+
+inspect_service_security_flags() {
+  local service="$1"
+  local label="$2"
+  local container_id=""
+  container_id="$(docker compose ps -q "$service" 2>/dev/null || true)"
+  if [[ -z "$container_id" ]]; then
+    echo "[smoke] unable to resolve container for service=$service" >&2
+    return 1
+  fi
+  docker inspect "$container_id" --format "${label}: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}} {{end}}"
 }
 
 post_chat_expect_200() {
@@ -68,10 +87,10 @@ echo "[smoke] docker services up (telegram-only runtime, rebuild mutable service
 compose_cmd up -d --build llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
 
 echo "[smoke] wait containers ready"
-wait_for_container_health nanoclaw-llm-proxy 30 1
-wait_for_container_health nanoclaw-n8n 30 1
+wait_for_container_health llm-proxy 30 1
+wait_for_container_health n8n 30 1
 wait_for_container_health nanoclaw-agent 20 1
-wait_for_container_health nanoclaw-telegram-poller 20 1
+wait_for_container_health telegram-poller 20 1
 
 echo "[smoke] llm-proxy health"
 curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
@@ -166,8 +185,8 @@ rm -f "shared_data/outbox/$latest_outbox"
 find shared_data/archive -type f -name "*-${INBOX_FILE}" -delete
 
 echo "[smoke] security flags check"
-docker inspect nanoclaw-agent --format 'agent: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-docker inspect nanoclaw-llm-proxy --format 'proxy: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-docker inspect nanoclaw-n8n --format 'n8n: ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+inspect_service_security_flags nanoclaw-agent agent
+inspect_service_security_flags llm-proxy proxy
+inspect_service_security_flags n8n n8n
 
 echo "[smoke] PASS"

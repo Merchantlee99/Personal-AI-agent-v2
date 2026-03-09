@@ -220,7 +220,7 @@ sequenceDiagram
 | 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
 | 역할/메모리 컨텍스트 조립 | `proxy/app/role_runtime.py`, `proxy/app/main.py` |
 | morning briefing 관찰 로그 | `proxy/app/orch_runtime_state.py`, `proxy/app/orch_store.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
-| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_runtime_state.py`, `proxy/app/orch_minerva_memory.py`, `proxy/app/orch_role_memories.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_state.py` |
+| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_runtime_state.py`, `proxy/app/orch_minerva_memory.py`, `proxy/app/orch_role_memories.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_common.py`, `proxy/app/orch_clio_reviews.py`, `proxy/app/orch_clio_suggestions.py`, `proxy/app/orch_clio_state.py` |
 | n8n execution cleanup | `scripts/n8n/cleanup-execution-data.sh` |
 ## 7) Hermes Daily Workflow 구조
 
