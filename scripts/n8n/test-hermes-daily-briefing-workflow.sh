@@ -14,6 +14,10 @@ required = {
     "Schedule P0 Daily (KST 09:00)",
     "Schedule P1 Every2Days (KST 09:10)",
     "Schedule P2 Every3Days (KST 09:20)",
+    "Prepare P0 Config",
+    "Prepare P1 Config",
+    "Prepare P2 Config",
+    "Collect Tier Signals",
 }
 missing = sorted(required - names)
 if missing:
@@ -23,16 +27,19 @@ code_by_name = {
     for node in workflow.get("nodes", [])
     if node.get("type") == "n8n-nodes-base.code"
 }
-for node_name in ("Normalize Input", "Collect P0 Signals", "Collect P1 Signals", "Collect P2 Signals"):
+for node_name in ("Normalize Input", "Collect Tier Signals"):
     code = code_by_name.get(node_name, "")
     if "INJECTION_PATTERNS" not in code or "isSafeUrl" not in code:
         raise SystemExit(f"missing injection/url filter in node: {node_name}")
-for node_name in ("Collect P0 Signals", "Collect P1 Signals", "Collect P2 Signals"):
+collector_code = code_by_name.get("Collect Tier Signals", "")
+if "HERMES_SEARCH_PROVIDER" not in collector_code:
+    raise SystemExit("missing HERMES_SEARCH_PROVIDER routing in shared collector")
+if "TAVILY_API_KEY" not in collector_code:
+    raise SystemExit("missing TAVILY_API_KEY usage in shared collector")
+for node_name in ("Prepare P0 Config", "Prepare P1 Config", "Prepare P2 Config"):
     code = code_by_name.get(node_name, "")
-    if "HERMES_SEARCH_PROVIDER" not in code:
-        raise SystemExit(f"missing HERMES_SEARCH_PROVIDER routing in collector: {node_name}")
-    if "TAVILY_API_KEY" not in code:
-        raise SystemExit(f"missing TAVILY_API_KEY usage in collector: {node_name}")
+    if "query_base" not in code or "tier_domains" not in code or "heartbeat_url" not in code:
+        raise SystemExit(f"missing tier config fields in node: {node_name}")
 print("[hermes-test] schedule + security filter nodes verified")
 PY
 

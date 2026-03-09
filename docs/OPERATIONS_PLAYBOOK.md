@@ -49,6 +49,10 @@ repair / E2E 점검
 npm run verify:hermes:schedule
 ```
 
+참고
+- `bash scripts/n8n/bootstrap-hermes-daily-briefing.sh`는 active workflow가 현재 파일과 동일하면 no-op으로 종료합니다.
+- 즉, 반복 검증이 n8n 재시작을 자동으로 유발하지 않습니다.
+
 수동 개별 점검
 ```bash
 npm run verify:smoke

@@ -60,6 +60,12 @@ get_workflow_ids() {
     | awk -F'|' -v target="$WORKFLOW_NAME" '$2 == target {print $1}'
 }
 
+is_workflow_active() {
+  local workflow_id="$1"
+  docker exec nanoclaw-n8n n8n list:workflow --active=true 2>/dev/null \
+    | awk -F'|' -v target="$workflow_id" '$1 == target {found=1} END{exit found?0:1}'
+}
+
 wait_for_n8n_cli() {
   for i in $(seq 1 30); do
     if docker exec nanoclaw-n8n n8n list:workflow >/dev/null 2>&1; then
@@ -108,6 +114,10 @@ if [[ "$workflow_count_before" -gt 1 && -n "$existing_workflow_id" ]]; then
 fi
 
 workflow_id="$existing_workflow_id"
+current_is_active=false
+if [[ -n "$workflow_id" ]] && is_workflow_active "$workflow_id"; then
+  current_is_active=true
+fi
 
 if [[ -n "$existing_workflow_id" && "$FORCE_IMPORT" != "true" ]]; then
   if workflow_definition_matches "$existing_workflow_id" >/tmp/n8n_workflow_compare.log 2>&1; then
@@ -125,6 +135,13 @@ if [[ -n "$existing_workflow_id" && "$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICA
   echo "[bootstrap] enabling duplicate-safe import; old definitions will be deactivated after import"
   ALLOW_DUPLICATE_IMPORT="true"
 fi
+
+if [[ -n "$workflow_id" && "$FORCE_IMPORT" != "true" && "$current_is_active" == "true" && "$purge_required" != "true" ]]; then
+  echo "[bootstrap] workflow already active with matching definition; no changes required"
+  exit 0
+fi
+
+restart_required=false
 
 if [[ -n "$workflow_id" && ! ("$FORCE_IMPORT" == "true" && "$ALLOW_DUPLICATE_IMPORT" == "true") ]]; then
   echo "[bootstrap] reusing existing workflow id=$workflow_id"
@@ -146,6 +163,7 @@ else
     # Fallback for cases where import reused an ID unexpectedly.
     workflow_id="$(printf '%s\n' "$after_ids" | awk 'NF{id=$1} END{print id}')"
   fi
+  restart_required=true
 fi
 
 if [[ -z "$workflow_id" ]]; then
@@ -172,8 +190,16 @@ docker exec nanoclaw-n8n n8n update:workflow --id="$workflow_id" --active=true >
   exit 1
 }
 
-echo "[bootstrap] restarting n8n for activation"
-compose_cmd restart n8n >/dev/null
+if [[ "$current_is_active" != "true" || "$restart_required" == "true" ]]; then
+  restart_required=true
+fi
+
+if [[ "$restart_required" == "true" ]]; then
+  echo "[bootstrap] restarting n8n for activation"
+  compose_cmd restart n8n >/dev/null
+else
+  echo "[bootstrap] activation already current; skipping n8n restart"
+fi
 
 if [[ "$purge_required" == "true" && "$PURGE_INACTIVE_DUPLICATES" == "true" ]]; then
   echo "[bootstrap] purge inactive duplicates for $WORKFLOW_NAME"

@@ -132,9 +132,10 @@ checks = [
         "file": Path("n8n/workflows/hermes-daily-briefing.json"),
         "nodes": [
             ("Normalize Input", ("INJECTION_PATTERNS", "isSafeUrl")),
-            ("Collect P0 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
-            ("Collect P1 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
-            ("Collect P2 Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
+            ("Collect Tier Signals", ("INJECTION_PATTERNS", "isSafeUrl", "TAVILY_API_KEY", "allowedTavilyHosts")),
+            ("Prepare P0 Config", ("query_base", "tier_domains", "heartbeat_url")),
+            ("Prepare P1 Config", ("query_base", "tier_domains", "heartbeat_url")),
+            ("Prepare P2 Config", ("query_base", "tier_domains", "heartbeat_url")),
             ("Build API Response", ("INTERNAL_API_TOKEN", "INTERNAL_SIGNING_SECRET", "createHmac", "x-internal-token")),
         ],
     },

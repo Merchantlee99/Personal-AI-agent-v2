@@ -19,7 +19,7 @@
 - `Hermes Daily Briefing Workflow` 스케줄 트리거
 
 처리
-1. P0/P1/P2 소스 수집
+1. P0/P1/P2 tier config 주입 후 shared collector가 소스 수집
 2. injection/unsafe URL 필터링
 3. dedup guard
 4. `/api/orchestration/events`로 이벤트 발행
