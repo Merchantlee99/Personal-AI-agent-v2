@@ -121,6 +121,32 @@ class InternalSecurityTests(unittest.TestCase):
         self.assertEqual(second_error.status_code, 429)
         self.assertEqual(second_error.detail, "Rate limit exceeded")
 
+    def test_missing_internal_token_fails_closed(self) -> None:
+        os.environ.pop("INTERNAL_API_TOKEN", None)
+        body = '{"agent_id":"minerva","message":"misconfig-check","history":[],"source":"web"}'
+        timestamp = str(int(time.time()))
+        nonce = "nonce-misconfig-token"
+        signature = self._signature("test-signing-secret", timestamp, nonce, body)
+        request = self._request(body=body, timestamp=timestamp, nonce=nonce, signature=signature)
+
+        error = self._run_verify(request)
+        self.assertIsNotNone(error)
+        self.assertEqual(error.status_code, 503)
+        self.assertEqual(error.detail, "Internal auth misconfigured: INTERNAL_API_TOKEN is not set")
+
+    def test_missing_signing_secret_fails_closed(self) -> None:
+        os.environ.pop("INTERNAL_SIGNING_SECRET", None)
+        body = '{"agent_id":"minerva","message":"misconfig-check","history":[],"source":"web"}'
+        timestamp = str(int(time.time()))
+        nonce = "nonce-misconfig-secret"
+        signature = "placeholder"
+        request = self._request(body=body, timestamp=timestamp, nonce=nonce, signature=signature)
+
+        error = self._run_verify(request)
+        self.assertIsNotNone(error)
+        self.assertEqual(error.status_code, 503)
+        self.assertEqual(error.detail, "Internal auth misconfigured: INTERNAL_SIGNING_SECRET is not set")
+
 
 if __name__ == "__main__":
     unittest.main()

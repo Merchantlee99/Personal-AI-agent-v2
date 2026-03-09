@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "name": "TripPixel",
+      "slug": "trippixel",
+      "aliases": ["trippixel", "trip pixel", "trip bowl", "tripbowl", "tripney", "waypoint"],
+      "folder": "03-Projects/TripPixel",
+      "moc": "[[TripPixel MOC]]"
+    },
+    {
+      "name": "Previbe",
+      "slug": "previbe",
+      "aliases": ["previbe", "pre vibe"],
+      "folder": "03-Projects/Previbe",
+      "moc": "[[Previbe MOC]]"
+    },
+    {
+      "name": "NanoClaw",
+      "slug": "nanoclaw",
+      "aliases": ["nanoclaw", "nano claw", "minerva", "clio", "hermes", "telegram agent"],
+      "folder": "03-Projects/NanoClaw",
+      "moc": "[[NanoClaw MOC]]"
+    },
+    {
+      "name": "Heuris",
+      "slug": "heuris",
+      "aliases": ["heuris", "try-catch", "try catch"],
+      "folder": "03-Projects/Heuris",
+      "moc": "[[Heuris MOC]]"
+    },
+    {
+      "name": "PM Career",
+      "slug": "pm-career",
+      "aliases": ["pm career", "pm 취업", "pm 커리어", "취업 전략"],
+      "folder": "03-Projects/PM-Career",
+      "moc": "[[PM Career MOC]]"
+    }
+  ]
+}

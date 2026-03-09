@@ -1,6 +1,5 @@
 # Node
 node_modules/
-.next/
 out/
 
 # Python
@@ -27,12 +26,16 @@ shared_data/obsidian_vault/*
 !shared_data/obsidian_vault/.gitkeep
 shared_data/shared_memory/*
 !shared_data/shared_memory/.gitkeep
+shared_data/runtime_agent_notes/*
+!shared_data/runtime_agent_notes/.gitkeep
 shared_data/queue/*
 !shared_data/queue/.gitkeep
 shared_data/workflows/*
 !shared_data/workflows/.gitkeep
 shared_data/runtime/*
 !shared_data/runtime/.gitkeep
+shared_data/render_review/*
+!shared_data/render_review/.gitkeep
 
 # OS
 .DS_Store

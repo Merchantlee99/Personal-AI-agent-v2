@@ -39,3 +39,9 @@ class SearchResponse(BaseModel):
     provider: str = "mock"
     filter_stats: dict[str, int] = Field(default_factory=dict)
     results: list[SearchResult]
+
+
+class ChatRequest(BaseModel):
+    agent_id: str = Field(min_length=1, validation_alias=AliasChoices("agent_id", "agentId"))
+    message: str = Field(min_length=1)
+    history: list[HistoryMessage] = Field(default_factory=list)

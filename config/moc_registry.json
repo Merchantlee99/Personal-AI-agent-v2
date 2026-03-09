@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "mocs": [
+    {
+      "link": "[[PM 스킬 맵]]",
+      "types": ["skill", "study"],
+      "domains": ["domain/pm"]
+    },
+    {
+      "link": "[[AI PM 연구]]",
+      "types": ["article", "paper", "knowledge"],
+      "domains": ["domain/ai", "domain/research"]
+    },
+    {
+      "link": "[[데이터 분석 MOC]]",
+      "types": ["study", "skill", "article"],
+      "domains": ["domain/data-analytics", "domain/sql"]
+    },
+    {
+      "link": "[[지식관리 MOC]]",
+      "types": ["knowledge", "skill", "article"],
+      "domains": ["domain/knowledge-management"]
+    },
+    {
+      "link": "[[NanoClaw MOC]]",
+      "types": ["knowledge", "article", "skill"],
+      "projects": ["nanoclaw"]
+    },
+    {
+      "link": "[[TripPixel MOC]]",
+      "types": ["knowledge", "article", "skill", "writing"],
+      "projects": ["trippixel"]
+    },
+    {
+      "link": "[[Previbe MOC]]",
+      "types": ["knowledge", "article", "skill", "writing"],
+      "projects": ["previbe"]
+    }
+  ]
+}
