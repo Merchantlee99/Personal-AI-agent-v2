@@ -3,12 +3,42 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+source "${REPO_ROOT}/scripts/runtime/compose-env.sh"
 source "${REPO_ROOT}/scripts/runtime/load-env.sh"
 load_runtime_env "${REPO_ROOT}/.env.local"
 
 API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
 require_schema="${ORCH_REQUIRE_SCHEMA_V1:-false}"
+
+wait_for_proxy_health() {
+  local retries="${1:-30}"
+  local sleep_sec="${2:-1}"
+  local container_id=""
+  local status=""
+
+  for _ in $(seq 1 "$retries"); do
+    container_id="$(docker compose ps -q llm-proxy 2>/dev/null || true)"
+    if [[ -z "$container_id" ]]; then
+      sleep "$sleep_sec"
+      continue
+    fi
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+    if [[ "$status" == "healthy" || "$status" == "running" ]]; then
+      return 0
+    fi
+    sleep "$sleep_sec"
+  done
+
+  echo "[event-contract] llm-proxy not ready (status=${status:-unknown} container_id=${container_id:-none})" >&2
+  compose_cmd logs --tail=100 llm-proxy >&2 || true
+  return 1
+}
+
+echo "[event-contract] ensure llm-proxy runtime"
+compose_cmd up -d --build llm-proxy >/dev/null
+wait_for_proxy_health 30 1
+
 if docker ps --format '{{.Names}}' | grep -qx 'nanoclaw-llm-proxy'; then
   runtime_require_schema="$(docker exec nanoclaw-llm-proxy sh -lc "printenv ORCH_REQUIRE_SCHEMA_V1 2>/dev/null || true" | tr -d '\r')"
   require_schema="${runtime_require_schema:-false}"
