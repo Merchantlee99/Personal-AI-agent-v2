@@ -4,8 +4,9 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app.llm_client import RetryableLLMError
-from app.main import MODEL_FALLBACKS, MODEL_ROUTING, agent_reply
+from app.http_routes import agent_reply
 from app.models import AgentRequest
+from app.role_runtime import MODEL_FALLBACKS, MODEL_ROUTING
 
 
 class AgentRoutingFallbackTests(unittest.TestCase):

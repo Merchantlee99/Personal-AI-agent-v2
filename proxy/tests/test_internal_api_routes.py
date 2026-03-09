@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app.main as main
-from app.main import chat_reply
+from app.http_routes import chat_reply
 from app.models import AgentResponse, ChatRequest
 
 
@@ -24,9 +24,9 @@ class InternalApiRouteContractTests(unittest.TestCase):
 
     def test_chat_reply_handles_missing_memory_context_field(self) -> None:
         with (
-            patch("app.main._build_agent_memory_context", return_value="minerva context"),
+            patch("app.http_routes.build_agent_memory_context", return_value="minerva context"),
             patch(
-                "app.main._run_agent_pipeline",
+                "app.http_routes.run_agent_pipeline",
                 return_value=AgentResponse(
                     agent_id="minerva",
                     model="mock-model",
