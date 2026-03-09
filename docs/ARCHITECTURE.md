@@ -239,7 +239,7 @@ sequenceDiagram
 - `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
 | 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_memory.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_state.py` |
 | Google Calendar read-only 통합 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
-| Clio template-driven note 생성 | `agent/clio_pipeline.py`, `agent/main.py` |
+| Clio template-driven note 생성 | `agent/clio_pipeline.py`, `agent/clio_core.py`, `agent/clio_render.py`, `agent/clio_notebooklm.py`, `agent/main.py` |
 | n8n 부트스트랩 | `scripts/n8n/*.sh`, `n8n/workflows/*.json` |
 
 ## 7) 현재 의도적으로 제외된 것
@@ -256,9 +256,9 @@ sequenceDiagram
 - facade 자체는 가벼워졌지만 approval / clio state / memory adapter가 여전히 결합된 경계 역할을 한다
 
 2. `agent/clio_pipeline.py`
-- Clio 분류, 제목/요약 생성, 템플릿 렌더, 재사용 판단이 한 모듈에 모여 있다
+- Clio 분류, 제목/요약 생성, 태그/링크/재사용 판단이 아직 한 모듈에 남아 있다
 
 3. `agent/main.py`
 - watcher / inbox I/O / archive / quarantine / runtime orchestration 책임이 남아 있다
 
-즉, 현재 아키텍처는 ingress와 역할/메모리 컨텍스트는 분리됐고, 다음 리팩터링 과제는 `orch_store` adapter 경계와 `Clio pipeline` 세분화입니다.
+즉, 현재 아키텍처는 ingress, approval/clio-state, Clio render/NotebookLM 경계까지 분리됐고, 다음 리팩터링 과제는 `orch_memory` 세분화와 `Clio inference` 축소입니다.

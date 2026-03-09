@@ -35,10 +35,10 @@
 | Clio knowledge memory / Hermes evidence memory | 완료(경량 summary 기준) | `proxy/app/orch_memory.py`, `proxy/app/orch_clio_state.py` |
 | Minerva 정책 엔진(임계/쿨다운/다이제스트) | 완료 | `proxy/app/orch_policy.py`, `proxy/app/main.py` |
 | Google Calendar read-only 연동(Telegram-only) | 완료 | `proxy/app/google_calendar.py`, `proxy/app/main.py` |
-| DeepL 선택 번역 최적화 | 완료 | `proxy/app/telegram_bridge.py`, `agent/clio_pipeline.py`, `agent/main.py` |
-| Clio template-driven Obsidian/verified_inbox 파이프라인 | 완료 | `agent/clio_pipeline.py`, `agent/main.py`, `shared_data/verified_inbox` |
+| DeepL 선택 번역 최적화 | 완료 | `proxy/app/telegram_bridge.py`, `agent/clio_notebooklm.py`, `agent/clio_pipeline.py`, `agent/main.py` |
+| Clio template-driven Obsidian/verified_inbox 파이프라인 | 완료 | `agent/clio_core.py`, `agent/clio_render.py`, `agent/clio_pipeline.py`, `agent/main.py`, `shared_data/verified_inbox` |
 | Clio review/suggestion/approval | 완료 | `proxy/app/main.py`, `proxy/app/orch_store.py`, `proxy/app/orch_clio_state.py`, `scripts/verify/check-clio-*.sh` |
-| user-facing vault / runtime note 분리 | 완료 | `agent/main.py`, `agent/clio_pipeline.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
+| user-facing vault / runtime note 분리 | 완료 | `agent/main.py`, `agent/clio_pipeline.py`, `agent/clio_render.py`, `shared_data/obsidian_vault`, `shared_data/runtime_agent_notes` |
 | Clio approval write boundary를 vault subtree로 제한 | 완료 | `proxy/app/orch_clio_state.py` |
 | worker unknown `agent_id` quarantine | 완료 | `agent/main.py` |
 | smoke/Clio verification artifact self-cleanup | 완료 | `scripts/verify/smoke-runtime.sh`, `scripts/verify/check-clio-format-contract.sh`, `scripts/verify/check-clio-pipeline-e2e.sh` |
@@ -71,7 +71,7 @@ flowchart LR
 2. Clio가 만든 `article/paper`의 실사용 품질은 real input 기준 추가 검증 필요
 3. polling dead-letter는 완화됐지만 운영상 메시지 유실을 100% 제거한 것은 아님
 4. NotebookLM은 여전히 비활성 운영 상태
-5. `proxy/app/orch_store.py`, `agent/clio_pipeline.py`, `agent/main.py`는 여전히 대형 모듈이라 리팩터링 여지 큼
+5. `proxy/app/orch_memory.py`, `agent/clio_pipeline.py`, `agent/main.py`는 여전히 대형 모듈이라 리팩터링 여지 큼
 
 ## 5) 지금 당장 더 필요한 것보다 뒤로 미룬 것
 - Aegis runtime 도입

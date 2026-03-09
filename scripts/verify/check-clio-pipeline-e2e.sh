@@ -48,6 +48,19 @@ print(files[-1] if files else "")
 PY
 }
 
+find_verified_file_by_run_id() {
+  local run_id="$1"
+  python3 - <<'PY' "$run_id"
+from pathlib import Path
+import sys
+
+run_id = sys.argv[1]
+root = Path("shared_data/verified_inbox")
+matches = sorted(root.glob(f"*{run_id}*.json"), key=lambda p: p.stat().st_mtime)
+print(matches[-1] if matches else "")
+PY
+}
+
 echo "[clio-e2e] ensure nanoclaw-agent is running"
 if [[ "$REBUILD_AGENT" == "true" ]]; then
   echo "[clio-e2e] rebuilding nanoclaw-agent image"
@@ -111,21 +124,25 @@ PY
 
 echo "[clio-e2e] wait for watchdog output"
 AFTER_COUNT="$BEFORE_COUNT"
+LATEST_FILE=""
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   AFTER_COUNT="$(count_verified_files)"
-  if [[ "$AFTER_COUNT" -gt "$BEFORE_COUNT" ]]; then
+  LATEST_FILE="$(find_verified_file_by_run_id "$RUN_ID")"
+  if [[ -n "$LATEST_FILE" || "$AFTER_COUNT" -gt "$BEFORE_COUNT" ]]; then
     break
   fi
   sleep 1
 done
 
-if [[ "$AFTER_COUNT" -le "$BEFORE_COUNT" ]]; then
-  echo "[clio-e2e] verified_inbox did not increase" >&2
+if [[ -z "$LATEST_FILE" && "$AFTER_COUNT" -le "$BEFORE_COUNT" ]]; then
+  echo "[clio-e2e] verified artifact not found for run_id=${RUN_ID}" >&2
   ls -1 shared_data/verified_inbox >&2 || true
   exit 1
 fi
 
-LATEST_FILE="$(latest_verified_file)"
+if [[ -z "$LATEST_FILE" ]]; then
+  LATEST_FILE="$(latest_verified_file)"
+fi
 if [[ -z "$LATEST_FILE" ]]; then
   echo "[clio-e2e] latest verified file not found" >&2
   exit 1

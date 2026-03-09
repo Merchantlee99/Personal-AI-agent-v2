@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .agents import normalize_agent_id
 from .http_routes import router as http_router
 from .models import HistoryMessage
 from .orch_contract import ORCHESTRATION_EVENT_SCHEMA_VERSION, validate_event_contract_v1
