@@ -250,7 +250,7 @@ sequenceDiagram
 ## 9) 현재 의도적으로 제외된 것
 - Telegram 외 채널 추상화(Slack/Email)
 - Aegis 자동 격리 런타임
-- NotebookLM 실사용 검증 완료
+- NotebookLM 실사용 검증 완료 상태
 
 이 항목들은 [IMPLEMENTATION_COVERAGE](IMPLEMENTATION_COVERAGE.md)에서 추적합니다.
 

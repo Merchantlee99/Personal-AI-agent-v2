@@ -46,8 +46,12 @@
 - 개발용 실험 자산
 
 ### 로컬/원격 중간 단계
-- Clio는 VPS에서 `draft/review request`까지만 만들고,
-- 최종 user-facing write는 로컬 vault 또는 승인 기반 sync로 유지
+- 목표 상태:
+  - Clio는 VPS에서 `draft/review request`까지만 만들고,
+  - 최종 user-facing write는 로컬 vault 또는 승인 기반 sync로 유지
+- 현재 구현 상태:
+  - review/suggestion 승인 시 같은 shared filesystem 안의 vault 파일을 직접 갱신한다
+  - 즉, 아래 분리는 현재 구현이 아니라 VPS 이전 전 추가로 만들어야 할 경계다
 
 ```mermaid
 flowchart LR

@@ -82,12 +82,13 @@
 검증
 - 문서 리뷰 완료
 
-## Gate 6. NotebookLM 운영 연결
+## Gate 6. NotebookLM 운영 연결 (선택)
 
 목적
-- "코드는 있으나 실사용 불가" 상태 제거
+- NotebookLM을 실제로 운영에 붙일 경우, core runtime과 분리된 optional integration으로 검증
 
 완료 조건
+- NotebookLM을 VPS 이전 범위에 포함하기로 결정한 경우에만 적용
 - `NOTEBOOKLM_SYNC_ENABLED=true` 실연동 검증 1회 성공
 - endpoint, timeout, 실패 처리(reason 코드) 확인
 - 장애 시 Clio 파이프라인 본체는 계속 동작(NotebookLM만 degraded)
@@ -95,6 +96,7 @@
 검증
 - `npm run verify:clio-e2e`
 - NotebookLM dispatch 실제 delivered 로그 확인
+- NotebookLM을 운영 범위에서 제외하면 이 Gate는 skip 가능
 
 ## Gate 7. 문서-코드 일치성
 
@@ -115,5 +117,5 @@
 3. Gate 3 (운영 경계 확정)
 4. Gate 4 (보안 아키텍처 확정)
 5. Gate 5 (Aegis 정책 확정)
-6. Gate 6 (NotebookLM 실연동)
+6. Gate 6 (NotebookLM 실연동, 선택)
 7. Gate 7 (문서 정합성 마감)
