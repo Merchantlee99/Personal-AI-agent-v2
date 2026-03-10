@@ -1,62 +1,152 @@
 # Aegis Plan (기획 전용, 미배포)
 
-상태: **Planning only**  
-중요: Aegis는 Canonical Agent ID 체계(`minerva`, `clio`, `hermes`)에 포함되지 않는 운영 감시자입니다.
+상태: **Planning only**
 
-## 1) 역할 정의
-- 목적: 보안/운영 이상 징후를 상시 감시하고, 위험 시 자동 격리(containment)까지 수행
-- 범위:
-  - 감시: health, webhook, 스케줄, 인증 실패, 비용 이상치
-  - 자동 실행: 제한된 긴급 중지 액션만
-  - 금지: 코드 수정/자율 복구/정책 우회
+중요:
+- Aegis는 Canonical Agent ID 체계(`minerva`, `clio`, `hermes`)에 포함되지 않습니다.
+- Aegis는 "네 번째 업무 에이전트"가 아니라 `guardrail / control plane`입니다.
+- Aegis가 자율 복구/자율 수정/자율 정책 변경을 하면 오히려 가장 위험한 고권한 에이전트가 됩니다.
+
+## 1) Aegis의 정확한 역할
+
+목적
+- 보안/운영 이상 징후를 감시
+- 행동 실행 전에 정책적으로 심사
+- 위험도가 높으면 차단 또는 승인 큐로 전환
+
+비목적
+- 스스로 목표 설정
+- 스스로 코드 수정
+- 스스로 정책 rewrite
+- 스스로 broad shell 실행
 
 ```mermaid
 flowchart LR
-  EXT["External Checks"] --> AEG["Aegis Monitor"]
-  INT["Runtime Logs/Metrics"] --> AEG
-  AEG --> DEC["Policy Decision"]
-  DEC -->|low| INFO["Digest / 기록"]
-  DEC -->|high| ALERT["Telegram P0 Alert"]
-  DEC -->|critical| ISO["Containment (stop ingress / stop n8n)"]
-  ISO --> HUMAN["Human-in-the-loop 복구"]
+  EVT["Runtime event / action request"] --> AEG["Aegis Policy Gate"]
+  AEG -->|allow| EXEC["existing runtime path"]
+  AEG -->|deny| DROP["reject / quarantine"]
+  AEG -->|approval| AP["approval queue"]
+  AEG -->|alert| TG["telegram alert"]
 ```
 
-## 2) 입력 신호
-- `/health`(proxy/n8n) 상태
-- `/api/runtime-metrics` (telegram success rate, pending approvals, deepl success rate)
-- Telegram webhook 상태(`getWebhookInfo`, pending/error)
-- 브리핑 도착 SLO(09:05 cut)
-- 인증 이벤트(allowlist mismatch, signature/replay/rate-limit)
-- LLM usage 이상치(429/fallback/급증)
+## 2) 왜 RBAC만으로는 부족한가
 
-## 3) 출력/행동
-- P0 즉시 알림(텔레그램)
-- P1/P2 다이제스트 기록
-- 자동 격리 액션(화이트리스트 기반):
-  - ingress 차단(예: tunnel 중지)
+RBAC가 하는 것
+- "누가 어떤 capability를 원칙적으로 가질 수 있는가"
+
+Aegis가 추가로 해야 하는 것
+- "지금 이 요청이 현재 맥락에서 안전한가"
+- 실행 전 동적 검증
+- 이상 징후 감시
+- 승인 필요 여부 판정
+
+즉
+- RBAC는 `정적 자격`
+- Aegis는 `실행 직전 통제`
+
+## 3) 입력 신호
+
+필수 입력
+- `/health` (proxy / n8n)
+- `/api/runtime-metrics`
+- morning briefing observation
+- runtime drift 결과
+- Telegram delivery failure
+- approval backlog
+- 인증 실패 이벤트(signature/replay/rate-limit)
+- LLM fallback / 429 / 급증
+
+후순위 입력
+- 비용 상한 초과
+- NotebookLM degraded 상태
+- dead-letter 증가
+
+## 4) 출력
+
+허용 가능한 출력
+- `allow`
+- `deny`
+- `require_approval`
+- `emit_alert`
+- `quarantine_suggest`
+- `temporary_rate_limit`
+
+금지 출력
+- 코드 수정
+- 정책 수정
+- broad restart
+- shell arbitrary exec
+- 시크릿 rotate
+
+## 5) v1 도입 범위
+
+### Phase A. Read-only Monitor
+- 감시와 알림만
+- 자동 실행 없음
+
+### Phase B. Narrow Gate
+- 특정 고위험 액션에 대해 `allow/deny/require_approval`
+- 예:
+  - 외부 전송
+  - 대량 저장
+  - 새 capability 사용
+  - 위험 호스트 접근
+
+### Phase C. Containment
+- 자동 동작은 2개만 허용
+  - ingress 일시 중지
   - n8n 일시 중지
-- 모든 고위험 액션은 감사로그 남김
+- 복구는 human-in-the-loop
 
-## 4) 안전장치
-- Aegis 액션 allowlist 고정(임의 shell 금지)
-- Telegram 승인 2단계 + TTL 300초
-- 실행 주체/시각/이유를 `shared_data/shared_memory`에 기록
-- Aegis 비활성화 토글 제공(`AEGIS_ENABLED=false`)
+## 6) fast path / slow path
 
-## 5) 단계별 도입
-### Phase A (권장 즉시)
-- 감시 전용(read-only): 알림만 전송, 자동 액션 없음
+```mermaid
+flowchart TD
+  REQ["Action request"] --> FAST["Deterministic checks"]
+  FAST -->|clear| ALLOW["allow"]
+  FAST -->|high risk| APPROVAL["require approval"]
+  FAST -->|ambiguous| SLOW["heuristic / advisory review"]
+  SLOW --> ALERT["alert / approval / deny"]
+```
 
-### Phase B
-- 자동 격리 2개만 허용:
-  - ingress 중지
-  - n8n 중지
+fast path
+- schema 검증
+- allowlist
+- cooldown
+- rate limit
+- approval 필요 여부
 
-### Phase C
-- 외부 모니터(별도 런타임) 추가
-- 단일 VPS compromise 시 감시 무력화 리스크 완화
+slow path
+- 이상 패턴 분석
+- 위험 점수 보조
+- 설명 생성
 
-## 6) 성공 기준
+원칙
+- 대부분은 규칙 기반
+- LLM은 advisory가 필요할 때만
+
+## 7) 최소 정책 초안
+
+자동 허용
+- read-only health check
+- observation logging
+- known safe internal event
+
+승인 필요
+- 외부 전송
+- user-facing knowledge claim 확정
+- 대량 note update
+- future calendar write
+
+자동 차단
+- unknown capability
+- allowlist 밖 host
+- invalid signature / replay
+- vault subtree 밖 쓰기 시도
+
+## 8) 성공 기준
+
 - 장애 원인 미식별 케이스 제거
 - 브리핑 미도착 감지 시간 5분 이내
-- 잘못된 자동 조치(오탐 격리) 월 1회 이하
+- 잘못된 자동 조치 월 1회 이하
+- 사람이 Aegis를 쉽게 끌 수 있고, Aegis가 사람을 잠그지 않음

@@ -148,6 +148,8 @@ npm run n8n:cleanup:executions
 | 문서 | 성격 |
 |---|---|
 | [docs/AGENT_SHARED_PIPELINE.md](docs/AGENT_SHARED_PIPELINE.md) | 현재 구조 + 향후 Aegis 포함 파이프라인 설계 |
+| [docs/VPS_OPERATION_PLAN.md](docs/VPS_OPERATION_PLAN.md) | 무엇을 VPS로 옮기고 무엇을 로컬에 남길지에 대한 운영 계획 |
+| [docs/VPS_SECURITY_ARCHITECTURE.md](docs/VPS_SECURITY_ARCHITECTURE.md) | VPS 이전 시 네트워크/시크릿/접속 정책 보안 설계 |
 | [docs/PRE_VPS_GATES.md](docs/PRE_VPS_GATES.md) | VPS 이전 체크리스트 |
 | [docs/AEGIS_PLAN.md](docs/AEGIS_PLAN.md) | 미배포 감시/control-plane 설계 |
 | [docs/PLAN_V2.md](docs/PLAN_V2.md) | 초기 기획 기록 |

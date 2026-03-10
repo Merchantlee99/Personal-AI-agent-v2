@@ -238,14 +238,23 @@ sequenceDiagram
 - 수집/요약/템플릿/서명/전송/응답을 분리해서 drift와 복붙을 줄임
 - `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
 
-## 7) 현재 의도적으로 제외된 것
+## 8) 미래 운영 설계 문서
+- VPS 운영 범위: [VPS_OPERATION_PLAN](VPS_OPERATION_PLAN.md)
+- VPS 보안 경계: [VPS_SECURITY_ARCHITECTURE](VPS_SECURITY_ARCHITECTURE.md)
+- Aegis control plane: [AEGIS_PLAN](AEGIS_PLAN.md)
+
+중요:
+- 위 문서들은 현재 런타임이 아니라 "미래 이전 기준선"입니다.
+- 현재 실작동 범위는 이 문서의 1~7장 기준으로 판단합니다.
+
+## 9) 현재 의도적으로 제외된 것
 - Telegram 외 채널 추상화(Slack/Email)
 - Aegis 자동 격리 런타임
 - NotebookLM 실사용 검증 완료
 
 이 항목들은 [IMPLEMENTATION_COVERAGE](IMPLEMENTATION_COVERAGE.md)에서 추적합니다.
 
-## 8) 현재 구조적 리스크
+## 10) 현재 구조적 리스크
 즉시 운영을 막는 수준은 아니지만, 다음 3개는 유지보수 리스크입니다.
 
 1. `proxy/app/orch_store.py`

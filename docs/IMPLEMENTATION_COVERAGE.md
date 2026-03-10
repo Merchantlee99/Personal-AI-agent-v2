@@ -48,6 +48,8 @@
 | GitHub Auto PR + Auto Merge | 완료(리포 설정 의존) | `.github/workflows/auto-pr-automerge.yml` |
 | NotebookLM 실운영 검증 | 부분완료 | `agent/runtime_worker.py` dispatch 구현, 운영 endpoint 검증 미완료 |
 | Aegis 운영 감시자 | 기획 | `docs/AEGIS_PLAN.md` |
+| VPS 운영 범위/단계 | 기획 | `docs/VPS_OPERATION_PLAN.md` |
+| VPS 보안 아키텍처 | 기획 | `docs/VPS_SECURITY_ARCHITECTURE.md` |
 | 채널 추상화(Telegram 외) | 미구현 | Telegram 전용 경로 |
 
 ## 3) 현재 아키텍처 레벨
