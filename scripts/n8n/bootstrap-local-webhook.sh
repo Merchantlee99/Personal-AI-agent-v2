@@ -214,7 +214,7 @@ fi
 
 echo "[bootstrap] waiting for webhook to become available"
 rm -f /tmp/n8n_bootstrap_webhook.json
-for i in $(seq 1 15); do
+for i in $(seq 1 30); do
   status="$(curl -s -o /tmp/n8n_bootstrap_webhook.json -w '%{http_code}' \
     -X POST "http://localhost:5678/webhook/$WEBHOOK_PATH" \
     -H 'content-type: application/json' \

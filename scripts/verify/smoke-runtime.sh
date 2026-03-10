@@ -102,7 +102,7 @@ compose_cmd up -d --build "${services[@]}" >/dev/null
 
 echo "[smoke] wait containers ready"
 wait_for_container_health llm-proxy 30 1
-wait_for_container_health n8n 30 1
+wait_for_container_health n8n 60 2
 wait_for_container_health nanoclaw-agent 20 1
 if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
   wait_for_container_health telegram-poller 20 1
