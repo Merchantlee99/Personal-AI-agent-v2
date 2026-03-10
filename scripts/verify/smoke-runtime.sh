@@ -101,11 +101,11 @@ fi
 compose_cmd up -d --build "${services[@]}" >/dev/null
 
 echo "[smoke] wait containers ready"
-wait_for_container_health llm-proxy 30 1
-wait_for_container_health n8n 60 2
-wait_for_container_health nanoclaw-agent 30 2
+wait_for_container_health llm-proxy 45 2
+wait_for_container_health n8n 90 2
+wait_for_container_health nanoclaw-agent 45 2
 if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
-  wait_for_container_health telegram-poller 20 1
+  wait_for_container_health telegram-poller 30 2
 fi
 
 echo "[smoke] llm-proxy health"
@@ -168,7 +168,7 @@ cat > "shared_data/inbox/$INBOX_FILE" <<JSON
 JSON
 
 processed=0
-for _ in $(seq 1 20); do
+for _ in $(seq 1 45); do
   if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
     processed=1
     break

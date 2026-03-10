@@ -79,12 +79,12 @@ wait_for_n8n_cli() {
 }
 
 wait_for_n8n_http() {
-  for i in $(seq 1 45); do
+  for i in $(seq 1 60); do
     status="$(curl -s -o /tmp/n8n_bootstrap_http.txt -w '%{http_code}' http://localhost:5678/ || true)"
     if [[ "$status" == "200" || "$status" == "302" || "$status" == "401" ]]; then
       return 0
     fi
-    echo "[bootstrap] waiting for n8n HTTP ready ($i/45) status=$status"
+    echo "[bootstrap] waiting for n8n HTTP ready ($i/60) status=$status"
     sleep 2
   done
   echo "[bootstrap] n8n HTTP not ready after retries" >&2
@@ -233,7 +233,7 @@ fi
 
 echo "[bootstrap] waiting for webhook to become available"
 rm -f /tmp/n8n_bootstrap_webhook.json
-for i in $(seq 1 60); do
+for i in $(seq 1 120); do
   status="$(curl -s -o /tmp/n8n_bootstrap_webhook.json -w '%{http_code}' \
     -X POST "http://localhost:5678/webhook/$WEBHOOK_PATH" \
     -H 'content-type: application/json' \
