@@ -11,6 +11,9 @@ API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
 require_schema="${ORCH_REQUIRE_SCHEMA_V1:-false}"
 
+mkdir -p "${REPO_ROOT}/shared_data"/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
+chmod -R a+rwX "${REPO_ROOT}/shared_data" || true
+
 wait_for_proxy_health() {
   local retries="${1:-30}"
   local sleep_sec="${2:-1}"

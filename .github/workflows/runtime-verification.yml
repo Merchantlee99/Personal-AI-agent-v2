@@ -61,14 +61,14 @@ jobs:
       - name: Validate Agent Config
         run: npm run verify:config
 
-      - name: Validate Event Contract
-        run: npm run verify:event-contract
-
       - name: Proxy Regression Tests
         run: npm run test:proxy
 
       - name: Runtime Smoke Verification
         run: npm run verify:smoke
+
+      - name: Validate Event Contract
+        run: npm run verify:event-contract
 
       - name: Security Baseline Verification
         run: npm run security:check-orchestration
