@@ -47,6 +47,7 @@ jobs:
             /^INTERNAL_API_TOKEN=/{print "INTERNAL_API_TOKEN=" t1; next}
             /^INTERNAL_SIGNING_SECRET=/{print "INTERNAL_SIGNING_SECRET=" t2; next}
             /^N8N_ENCRYPTION_KEY=/{print "N8N_ENCRYPTION_KEY=" t3; next}
+            /^LLM_PROVIDER=/{print "LLM_PROVIDER=mock"; next}
             {print}
           ' .env.local > .env.local.tmp
           mv .env.local.tmp .env.local

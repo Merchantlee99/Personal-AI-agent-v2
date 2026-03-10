@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 source scripts/runtime/load-env.sh
 
-ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env.local}"
+ENV_FILE="${ENV_FILE:-${COMPOSE_ENV_FILE:-${ROOT_DIR}/.env.local}}"
 load_runtime_env "$ENV_FILE"
 
 METHOD="${1:-}"

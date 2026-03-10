@@ -86,6 +86,11 @@ echo "[smoke] ensure shared_data writable"
 mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
 chmod -R a+rwX shared_data || true
 
+if [[ "${CI:-}" == "true" ]]; then
+  echo "[smoke] CI mode: reset compose state for deterministic runtime smoke"
+  compose_cmd down -v --remove-orphans >/dev/null 2>&1 || true
+fi
+
 echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
 services=(llm-proxy nanoclaw-agent n8n)
 if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
