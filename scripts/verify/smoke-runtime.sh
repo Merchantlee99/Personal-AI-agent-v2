@@ -4,11 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 source scripts/runtime/compose-env.sh
+source scripts/runtime/load-env.sh
+load_runtime_env "${COMPOSE_ENV_FILE:-$ROOT_DIR/.env.local}"
 
 API_PORT="${API_PORT:-8001}"
 SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
 SIGNED_HELPER="bash scripts/runtime/internal-api-request.sh"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 
 wait_for_container_health() {
   local service="$1"
@@ -84,13 +87,21 @@ mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,sh
 chmod -R a+rwX shared_data || true
 
 echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
-compose_cmd up -d --build llm-proxy telegram-poller nanoclaw-agent n8n >/dev/null
+services=(llm-proxy nanoclaw-agent n8n)
+if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+  services+=(telegram-poller)
+else
+  echo "[smoke] TELEGRAM_BOT_TOKEN not set; skip telegram-poller in CI smoke"
+fi
+compose_cmd up -d --build "${services[@]}" >/dev/null
 
 echo "[smoke] wait containers ready"
 wait_for_container_health llm-proxy 30 1
 wait_for_container_health n8n 30 1
 wait_for_container_health nanoclaw-agent 20 1
-wait_for_container_health telegram-poller 20 1
+if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+  wait_for_container_health telegram-poller 20 1
+fi
 
 echo "[smoke] llm-proxy health"
 curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
