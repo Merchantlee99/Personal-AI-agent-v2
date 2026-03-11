@@ -8,10 +8,11 @@ source scripts/runtime/load-env.sh
 load_runtime_env "${COMPOSE_ENV_FILE:-$ROOT_DIR/.env.local}"
 
 API_PORT="${API_PORT:-8001}"
-SMOKE_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
+SMOKE_ID="${SMOKE_ID:-$(date +%Y%m%d-%H%M%S)-$RANDOM}"
 INBOX_FILE="smoke-${SMOKE_ID}.json"
 SIGNED_HELPER="bash scripts/runtime/internal-api-request.sh"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+STAGE="${1:-all}"
 
 wait_for_container_health() {
   local service="$1"
@@ -55,6 +56,7 @@ post_chat_expect_200() {
   local body_file="$1"
   local output_file="$2"
   local label="$3"
+  local status=""
 
   for i in 1 2 3 4 5; do
     status="$(
@@ -79,113 +81,126 @@ post_chat_expect_200() {
   return 1
 }
 
-echo "[smoke] agent config check"
-bash scripts/verify/validate-agent-config.sh
+ensure_runtime_ready() {
+  echo "[smoke] agent config check"
+  bash scripts/verify/validate-agent-config.sh
 
-echo "[smoke] ensure shared_data writable"
-mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
-chmod -R a+rwX shared_data || true
+  echo "[smoke] ensure shared_data writable"
+  mkdir -p shared_data/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
+  chmod -R a+rwX shared_data || true
 
-if [[ "${CI:-}" == "true" ]]; then
-  echo "[smoke] CI mode: reset compose state for deterministic runtime smoke"
-  compose_cmd down -v --remove-orphans >/dev/null 2>&1 || true
-fi
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "[smoke] CI mode: reset compose state for deterministic runtime smoke"
+    compose_cmd down -v --remove-orphans >/dev/null 2>&1 || true
+  fi
 
-echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
-services=(llm-proxy nanoclaw-agent n8n)
-if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
-  services+=(telegram-poller)
-else
-  echo "[smoke] TELEGRAM_BOT_TOKEN not set; skip telegram-poller in CI smoke"
-fi
-compose_cmd up -d --build "${services[@]}" >/dev/null
+  echo "[smoke] docker services up (telegram-only runtime, rebuild mutable services)"
+  local services=(llm-proxy nanoclaw-agent n8n)
+  if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+    services+=(telegram-poller)
+  else
+    echo "[smoke] TELEGRAM_BOT_TOKEN not set; skip telegram-poller in CI smoke"
+  fi
+  compose_cmd up -d --build "${services[@]}" >/dev/null
 
-echo "[smoke] wait containers ready"
-wait_for_container_health llm-proxy 45 2
-wait_for_container_health n8n 90 2
-wait_for_container_health nanoclaw-agent 45 2
-if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
-  wait_for_container_health telegram-poller 30 2
-fi
+  echo "[smoke] wait containers ready"
+  wait_for_container_health llm-proxy 45 2
+  wait_for_container_health n8n 90 2
+  wait_for_container_health nanoclaw-agent 45 2
+  if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+    wait_for_container_health telegram-poller 30 2
+  fi
+}
 
-echo "[smoke] llm-proxy health"
-curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
-cat /tmp/nanoclaw_smoke_health.json
+run_proxy_checks() {
+  ensure_runtime_ready
 
-echo "[smoke] /api/runtime-metrics signed check"
-$SIGNED_HELPER GET "http://127.0.0.1:${API_PORT}/api/runtime-metrics" /tmp/nanoclaw_smoke_metrics.json >/tmp/nanoclaw_smoke_metrics.status
-if [[ "$(cat /tmp/nanoclaw_smoke_metrics.status)" != "200" ]]; then
-  echo "[smoke] expected 200 for signed runtime metrics check" >&2
-  cat /tmp/nanoclaw_smoke_metrics.json >&2 || true
-  exit 1
-fi
-cat /tmp/nanoclaw_smoke_metrics.json
+  echo "[smoke] llm-proxy health"
+  curl -fsS "http://127.0.0.1:${API_PORT}/health" >/tmp/nanoclaw_smoke_health.json
+  cat /tmp/nanoclaw_smoke_health.json
 
-echo "[smoke] n8n bootstrap"
-bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
-cat /tmp/nanoclaw_smoke_bootstrap.log
+  echo "[smoke] /api/runtime-metrics signed check"
+  $SIGNED_HELPER GET "http://127.0.0.1:${API_PORT}/api/runtime-metrics" /tmp/nanoclaw_smoke_metrics.json >/tmp/nanoclaw_smoke_metrics.status
+  if [[ "$(cat /tmp/nanoclaw_smoke_metrics.status)" != "200" ]]; then
+    echo "[smoke] expected 200 for signed runtime metrics check" >&2
+    cat /tmp/nanoclaw_smoke_metrics.json >&2 || true
+    exit 1
+  fi
+  cat /tmp/nanoclaw_smoke_metrics.json
 
-echo "[smoke] /api/chat canonical check"
-cat >/tmp/nanoclaw_smoke_chat_canonical.body.json <<'JSON'
+  echo "[smoke] /api/chat canonical check"
+  cat >/tmp/nanoclaw_smoke_chat_canonical.body.json <<'JSON'
 {"agentId":"minerva","message":"smoke-canonical"}
 JSON
-post_chat_expect_200 \
-  /tmp/nanoclaw_smoke_chat_canonical.body.json \
-  /tmp/nanoclaw_smoke_chat_canonical.json \
-  "chat canonical"
+  post_chat_expect_200 \
+    /tmp/nanoclaw_smoke_chat_canonical.body.json \
+    /tmp/nanoclaw_smoke_chat_canonical.json \
+    "chat canonical"
 
-echo "[smoke] /api/chat legacy alias rejection check"
-cat >/tmp/nanoclaw_smoke_chat_alias.body.json <<'JSON'
+  echo "[smoke] /api/chat legacy alias rejection check"
+  cat >/tmp/nanoclaw_smoke_chat_alias.body.json <<'JSON'
 {"agentId":"ace","message":"smoke-legacy-alias"}
 JSON
-alias_status="$(
-  $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" /tmp/nanoclaw_smoke_chat_alias_reject.json /tmp/nanoclaw_smoke_chat_alias.body.json || true
-)"
-if [[ "$alias_status" != "400" ]]; then
-  echo "[smoke] expected 400 for legacy alias, got $alias_status" >&2
-  cat /tmp/nanoclaw_smoke_chat_alias_reject.json >&2 || true
-  exit 1
-fi
+  alias_status="$(
+    $SIGNED_HELPER POST "http://127.0.0.1:${API_PORT}/api/chat" /tmp/nanoclaw_smoke_chat_alias_reject.json /tmp/nanoclaw_smoke_chat_alias.body.json || true
+  )"
+  if [[ "$alias_status" != "400" ]]; then
+    echo "[smoke] expected 400 for legacy alias, got $alias_status" >&2
+    cat /tmp/nanoclaw_smoke_chat_alias_reject.json >&2 || true
+    exit 1
+  fi
 
-echo "[smoke] /api/chat legacy history(content) check"
-cat >/tmp/nanoclaw_smoke_chat_history.body.json <<'JSON'
+  echo "[smoke] /api/chat legacy history(content) check"
+  cat >/tmp/nanoclaw_smoke_chat_history.body.json <<'JSON'
 {"agentId":"minerva","message":"smoke-history","history":[{"role":"user","content":"legacy-content","at":"2026-03-01T12:00:00Z"}]}
 JSON
-post_chat_expect_200 \
-  /tmp/nanoclaw_smoke_chat_history.body.json \
-  /tmp/nanoclaw_smoke_chat_history.json \
-  "chat legacy history"
+  post_chat_expect_200 \
+    /tmp/nanoclaw_smoke_chat_history.body.json \
+    /tmp/nanoclaw_smoke_chat_history.json \
+    "chat legacy history"
+}
 
-echo "[smoke] n8n webhook check"
-curl -fsS -X POST 'http://localhost:5678/webhook/nanoclaw-v2-smoke' \
-  -H 'content-type: application/json' \
-  -d '{"ping":"pong","source":"smoke-runtime"}' >/tmp/nanoclaw_smoke_webhook.json
-cat /tmp/nanoclaw_smoke_webhook.json
+run_n8n_checks() {
+  ensure_runtime_ready
 
-echo "[smoke] watchdog check"
-cat > "shared_data/inbox/$INBOX_FILE" <<JSON
+  echo "[smoke] n8n bootstrap"
+  bash scripts/n8n/bootstrap-local-webhook.sh >/tmp/nanoclaw_smoke_bootstrap.log
+  cat /tmp/nanoclaw_smoke_bootstrap.log
+
+  echo "[smoke] n8n webhook check"
+  curl -fsS -X POST 'http://localhost:5678/webhook/nanoclaw-v2-smoke' \
+    -H 'content-type: application/json' \
+    -d '{"ping":"pong","source":"smoke-runtime"}' >/tmp/nanoclaw_smoke_webhook.json
+  cat /tmp/nanoclaw_smoke_webhook.json
+}
+
+run_watchdog_checks() {
+  ensure_runtime_ready
+
+  echo "[smoke] watchdog check"
+  cat > "shared_data/inbox/$INBOX_FILE" <<JSON
 {"agent_id":"hermes","message":"smoke runtime watchdog","source":"smoke-runtime"}
 JSON
 
-processed=0
-for _ in $(seq 1 45); do
-  if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
-    processed=1
-    break
+  processed=0
+  for _ in $(seq 1 45); do
+    if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
+      processed=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "$processed" != "1" ]]; then
+    echo "[smoke] watchdog output not found for $INBOX_FILE" >&2
+    ls -1 shared_data/outbox >&2 || true
+    exit 1
   fi
-  sleep 1
-done
 
-if [[ "$processed" != "1" ]]; then
-  echo "[smoke] watchdog output not found for $INBOX_FILE" >&2
-  ls -1 shared_data/outbox >&2 || true
-  exit 1
-fi
+  latest_outbox="$(ls -1t shared_data/outbox | grep "$INBOX_FILE" | head -n 1)"
+  cat "shared_data/outbox/$latest_outbox"
 
-latest_outbox="$(ls -1t shared_data/outbox | grep "$INBOX_FILE" | head -n 1)"
-cat "shared_data/outbox/$latest_outbox"
-
-python3 - <<'PY' "shared_data/outbox/$latest_outbox"
+  python3 - <<'PY' "shared_data/outbox/$latest_outbox"
 import json
 import pathlib
 import sys
@@ -197,12 +212,41 @@ if isinstance(vault_file, str) and vault_file.startswith("runtime_agent_notes/")
     if target.exists():
         target.unlink()
 PY
-rm -f "shared_data/outbox/$latest_outbox"
-find shared_data/archive -type f -name "*-${INBOX_FILE}" -delete
+  rm -f "shared_data/outbox/$latest_outbox"
+  find shared_data/archive -type f -name "*-${INBOX_FILE}" -delete
+}
 
-echo "[smoke] security flags check"
-inspect_service_security_flags nanoclaw-agent agent
-inspect_service_security_flags llm-proxy proxy
-inspect_service_security_flags n8n n8n
+run_security_checks() {
+  ensure_runtime_ready
 
-echo "[smoke] PASS"
+  echo "[smoke] security flags check"
+  inspect_service_security_flags nanoclaw-agent agent
+  inspect_service_security_flags llm-proxy proxy
+  inspect_service_security_flags n8n n8n
+}
+
+case "$STAGE" in
+  proxy)
+    run_proxy_checks
+    ;;
+  n8n)
+    run_n8n_checks
+    ;;
+  watchdog)
+    run_watchdog_checks
+    ;;
+  security)
+    run_security_checks
+    ;;
+  all)
+    run_proxy_checks
+    run_n8n_checks
+    run_watchdog_checks
+    run_security_checks
+    echo "[smoke] PASS"
+    ;;
+  *)
+    echo "[smoke] unknown stage: $STAGE" >&2
+    exit 1
+    ;;
+esac

@@ -65,8 +65,17 @@ jobs:
       - name: Proxy Regression Tests
         run: npm run test:proxy
 
-      - name: Runtime Smoke Verification
-        run: npm run verify:smoke
+      - name: Runtime Smoke Proxy Verification
+        run: bash scripts/verify/smoke-runtime.sh proxy
+
+      - name: Runtime Smoke n8n Verification
+        run: bash scripts/verify/smoke-runtime.sh n8n
+
+      - name: Runtime Smoke Watchdog Verification
+        run: bash scripts/verify/smoke-runtime.sh watchdog
+
+      - name: Runtime Smoke Security Verification
+        run: bash scripts/verify/smoke-runtime.sh security
 
       - name: Validate Event Contract
         run: npm run verify:event-contract
