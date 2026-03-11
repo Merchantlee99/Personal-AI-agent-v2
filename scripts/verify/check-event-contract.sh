@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 source "${REPO_ROOT}/scripts/runtime/compose-env.sh"
 source "${REPO_ROOT}/scripts/runtime/load-env.sh"
-load_runtime_env "${REPO_ROOT}/.env.local"
+load_runtime_env "${COMPOSE_ENV_FILE:-${REPO_ROOT}/.env.local}"
 
 API_PORT="${API_PORT:-8001}"
 BASE_URL="http://127.0.0.1:${API_PORT}"
