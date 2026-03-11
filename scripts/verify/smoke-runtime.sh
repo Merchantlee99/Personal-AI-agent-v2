@@ -181,9 +181,11 @@ run_watchdog_checks() {
   # GitHub runners can report the container healthy before the watchdog loop
   # has begun polling the inbox, so give the worker a small grace period.
   sleep 5
-  cat > "shared_data/inbox/$INBOX_FILE" <<JSON
+  tmp_inbox_file="/tmp/${INBOX_FILE}.tmp"
+  cat > "$tmp_inbox_file" <<JSON
 {"agent_id":"hermes","message":"smoke runtime watchdog","source":"smoke-runtime"}
 JSON
+  mv "$tmp_inbox_file" "shared_data/inbox/$INBOX_FILE"
 
   processed=0
   for _ in $(seq 1 90); do
