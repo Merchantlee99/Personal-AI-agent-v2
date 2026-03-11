@@ -178,12 +178,15 @@ run_watchdog_checks() {
   ensure_runtime_ready
 
   echo "[smoke] watchdog check"
+  # GitHub runners can report the container healthy before the watchdog loop
+  # has begun polling the inbox, so give the worker a small grace period.
+  sleep 5
   cat > "shared_data/inbox/$INBOX_FILE" <<JSON
 {"agent_id":"hermes","message":"smoke runtime watchdog","source":"smoke-runtime"}
 JSON
 
   processed=0
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 90); do
     if ls shared_data/outbox | grep -q "$INBOX_FILE"; then
       processed=1
       break
@@ -194,6 +197,7 @@ JSON
   if [[ "$processed" != "1" ]]; then
     echo "[smoke] watchdog output not found for $INBOX_FILE" >&2
     ls -1 shared_data/outbox >&2 || true
+    docker compose --env-file "${COMPOSE_ENV_FILE:-$ROOT_DIR/.env.local}" logs nanoclaw-agent --tail=200 >&2 || true
     exit 1
   fi
 
