@@ -72,7 +72,7 @@ jobs:
         run: bash scripts/verify/smoke-runtime.sh n8n
 
       - name: Runtime Agent Worker Verification
-        run: docker run --rm -v "$PWD/agent:/work" -w /work agent_workspace-nanoclaw-agent python -m unittest tests.test_main -v
+        run: docker compose --env-file .env.local run --rm -v "$PWD/agent:/work" -w /work nanoclaw-agent python -m unittest tests.test_main -v
 
       - name: Runtime Smoke Security Verification
         run: bash scripts/verify/smoke-runtime.sh security
