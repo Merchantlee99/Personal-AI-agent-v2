@@ -78,7 +78,16 @@ jobs:
         run: bash scripts/verify/smoke-runtime.sh security
 
       - name: Validate Event Contract
-        run: npm run verify:event-contract
+        run: |
+          set -euo pipefail
+          if ! npm run verify:event-contract > /tmp/event-contract.log 2>&1; then
+            cat /tmp/event-contract.log || true
+            tail -n 40 /tmp/event-contract.log | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+          cat /tmp/event-contract.log
 
       - name: Security Baseline Verification
         run: npm run security:check-orchestration
