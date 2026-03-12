@@ -90,7 +90,16 @@ jobs:
           cat /tmp/event-contract.log
 
       - name: Security Baseline Verification
-        run: npm run security:check-orchestration
+        run: |
+          set -euo pipefail
+          if ! npm run security:check-orchestration > /tmp/security-baseline.log 2>&1; then
+            cat /tmp/security-baseline.log || true
+            tail -n 40 /tmp/security-baseline.log | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+          cat /tmp/security-baseline.log
 
       - name: Collect Runtime Logs
         if: always()

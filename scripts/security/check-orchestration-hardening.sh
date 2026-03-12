@@ -253,6 +253,11 @@ assert_container_env_empty() {
   fi
 }
 
+container_exists() {
+  local container="$1"
+  docker inspect "$container" >/dev/null 2>&1
+}
+
 if compose_cmd ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
   if grep -q "nanoclaw-agent" /tmp/security_orch_compose_ps.txt; then
     docker inspect nanoclaw-agent --format '[security-orch] agent read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} no_new_priv={{json .HostConfig.SecurityOpt}}' || true
@@ -262,13 +267,28 @@ if compose_cmd ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
 
     echo "[security-orch] checking service-specific secret minimization"
     assert_container_env_present nanoclaw-llm-proxy INTERNAL_API_TOKEN
-    assert_container_env_present nanoclaw-llm-proxy TELEGRAM_BOT_TOKEN
+    if runtime_env_has_value TELEGRAM_BOT_TOKEN; then
+      assert_container_env_present nanoclaw-llm-proxy TELEGRAM_BOT_TOKEN
+    else
+      assert_container_env_empty nanoclaw-llm-proxy TELEGRAM_BOT_TOKEN
+    fi
     assert_container_env_empty nanoclaw-llm-proxy N8N_BASIC_AUTH_PASSWORD
 
-    assert_container_env_present nanoclaw-telegram-poller TELEGRAM_BOT_TOKEN
-    assert_container_env_empty nanoclaw-telegram-poller ANTHROPIC_API_KEY
-    assert_container_env_empty nanoclaw-telegram-poller GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
-    assert_container_env_empty nanoclaw-telegram-poller TAVILY_API_KEY
+    if container_exists nanoclaw-telegram-poller; then
+      if runtime_env_has_value TELEGRAM_BOT_TOKEN; then
+        assert_container_env_present nanoclaw-telegram-poller TELEGRAM_BOT_TOKEN
+      else
+        assert_container_env_empty nanoclaw-telegram-poller TELEGRAM_BOT_TOKEN
+      fi
+      assert_container_env_empty nanoclaw-telegram-poller ANTHROPIC_API_KEY
+      assert_container_env_empty nanoclaw-telegram-poller GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
+      assert_container_env_empty nanoclaw-telegram-poller TAVILY_API_KEY
+    elif runtime_env_has_value TELEGRAM_BOT_TOKEN; then
+      echo "[security-orch] FAIL nanoclaw-telegram-poller is missing while TELEGRAM_BOT_TOKEN is configured" >&2
+      FAIL=1
+    else
+      echo "[security-orch] OK nanoclaw-telegram-poller is absent because TELEGRAM_BOT_TOKEN is not configured"
+    fi
 
     assert_container_env_empty nanoclaw-agent TELEGRAM_BOT_TOKEN
     assert_container_env_empty nanoclaw-agent ANTHROPIC_API_KEY
@@ -285,7 +305,11 @@ if compose_cmd ps >/tmp/security_orch_compose_ps.txt 2>/dev/null; then
     else
       echo "[security-orch] OK nanoclaw-n8n NODE_FUNCTION_ALLOW_BUILTIN includes crypto"
     fi
-    assert_container_env_present nanoclaw-n8n TAVILY_API_KEY
+    if runtime_env_has_value TAVILY_API_KEY && { [[ "$SEARCH_PROVIDER" == "tavily" ]] || [[ "$HERMES_SEARCH_PROVIDER" == "tavily" ]]; }; then
+      assert_container_env_present nanoclaw-n8n TAVILY_API_KEY
+    else
+      assert_container_env_empty nanoclaw-n8n TAVILY_API_KEY
+    fi
     assert_container_env_empty nanoclaw-n8n TELEGRAM_BOT_TOKEN
     assert_container_env_empty nanoclaw-n8n GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET
     assert_container_env_empty nanoclaw-n8n ANTHROPIC_API_KEY
