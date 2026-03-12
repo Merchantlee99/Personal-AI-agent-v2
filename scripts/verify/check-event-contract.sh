@@ -12,7 +12,7 @@ BASE_URL="http://127.0.0.1:${API_PORT}"
 require_schema="${ORCH_REQUIRE_SCHEMA_V1:-false}"
 
 mkdir -p "${REPO_ROOT}/shared_data"/{inbox,outbox,archive,logs,verified_inbox,obsidian_vault,shared_memory,queue,workflows}
-chmod -R a+rwX "${REPO_ROOT}/shared_data" || true
+chmod -R a+rwX "${REPO_ROOT}/shared_data" >/dev/null 2>&1 || true
 
 wait_for_proxy_health() {
   local retries="${1:-30}"
@@ -79,7 +79,7 @@ run_case "v1_explicit" '{
   "confidence": 0.64,
   "tags": ["contract", "verification"],
   "sourceRefs": [{"title": "source", "url": "https://example.com/a"}]
-}' "200" >/tmp/event_contract_v1_explicit.json
+}' "200"
 
 python3 - <<'PY'
 import json
@@ -105,7 +105,7 @@ run_case "legacy" '{
   "priority": "normal",
   "confidence": 0.62,
   "tags": ["contract", "legacy"]
-}' "$legacy_expected_status" >/tmp/event_contract_legacy.json
+}' "$legacy_expected_status"
 
 if [[ "$legacy_expected_status" == "200" ]]; then
   python3 - <<'PY'
@@ -138,7 +138,7 @@ run_case "invalid_schema" '{
   "summary": "invalid schema version",
   "priority": "normal",
   "confidence": 0.55
-}' "400" >/tmp/event_contract_invalid_schema.json
+}' "400"
 
 python3 - <<'PY'
 import json
@@ -160,7 +160,7 @@ run_case "invalid_force_theme" '{
   "priority": "normal",
   "confidence": 0.55,
   "forceTheme": "nope"
-}' "400" >/tmp/event_contract_invalid_force_theme.json
+}' "400"
 
 python3 - <<'PY'
 import json
