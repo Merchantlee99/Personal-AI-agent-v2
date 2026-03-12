@@ -1,88 +1,151 @@
 # NanoClaw v2 Architecture
 
-이 문서는 "시스템이 어떻게 연결되고, 어떤 책임으로 분리되어 있는지"를 설명합니다.
+이 문서는 Telegram-first 구조, 역할 경계, 저장 경계를 현재 구현 기준으로 설명합니다.
 운영 절차는 [OPERATIONS_PLAYBOOK](OPERATIONS_PLAYBOOK.md), 보안 통제는 [SECURITY_BASELINE](SECURITY_BASELINE.md)를 참고합니다.
 
-## 1) 역할 분리(고정 규칙)
+## 1) 역할 분리
 
 | Agent | 책임(Do) | 비책임(Do Not) |
 |---|---|---|
-| `minerva` | 오케스트레이션, 우선순위, 최종 인사이트 | 직접 대량 웹수집 파이프라인 운영 |
-| `clio` | 지식 구조화, 문서화, Obsidian/NotebookLM 준비 | 실시간 트렌드 감시 의사결정 |
+| `minerva` | 오케스트레이션, 우선순위, 최종 인사이트, 사용자-facing 대화 | 직접 대량 웹수집, 장문 지식 편집 |
+| `clio` | Obsidian 표준 노트 초안 생성, 링크/프로젝트/MOC 연결, review/suggestion 관리 | 사용자 claim 자동 확정, evergreen 자동 승격 |
 | `hermes` | 외부 수집, 트렌드 브리핑, 근거 확장 | 최종 전략 결론 단독 확정 |
 
 Canonical ID는 `minerva`, `clio`, `hermes`만 허용합니다.
 
-## 2) 컴포넌트 구조
+운영 원칙
+- 사용자에게 보이는 대화 창구는 `Minerva` 하나입니다.
+- `Clio`, `Hermes`, `Aegis`는 내부 worker/계획 대상으로만 다룹니다.
+- 에이전트 간 공유는 raw 자유대화가 아니라 `event/evidence/note/summary/approval` 아티팩트로 제한합니다.
+
+## 2) 컴포넌트 구조 (현재 운영형)
 
 ```mermaid
 flowchart LR
-  subgraph CLIENT["Client"]
-    UI["Next.js Dashboard"]
+  subgraph ENTRY["External Entry"]
     TGUSER["Telegram User"]
+    N8N["n8n schedule/webhook"]
+    TAPI["Telegram Cloud API"]
   end
 
-  subgraph APP["Next.js API Layer"]
-    CHAT["/api/chat"]
+  subgraph CORE["Core Service"]
+    PX["llm-proxy (FastAPI)"]
+    CHAT["signed internal /api/chat"]
     ORCH["/api/orchestration/events"]
     TGCB["/api/telegram/webhook"]
     GCAL["/api/integrations/google-calendar/*"]
   end
 
-  subgraph CORE["Service Layer"]
-    PX["llm-proxy (FastAPI)"]
-    AG["nanoclaw-agent (watchdog)"]
-    N8N["n8n workflows"]
+  subgraph BRIDGE["Telegram Bridge"]
+    TGP["telegram-poller"]
   end
 
-  subgraph STORE["Shared Data"]
+  subgraph WORKER["Worker"]
+    AG["nanoclaw-agent (watchdog)"]
+  end
+
+  subgraph USERDATA["User-facing Knowledge"]
+    VAULT["shared_data/obsidian_vault"]
+  end
+
+  subgraph RUNTIME["Runtime / Internal Data"]
     INBOX["inbox"]
     OUTBOX["outbox"]
-    VAULT["obsidian_vault"]
     VERIFIED["verified_inbox"]
-    MEMORY["shared_memory"]
+    MEM["shared_memory"]
+    RNOTES["runtime_agent_notes"]
+    ARCH["archive"]
   end
 
-  UI --> CHAT
+  TGUSER --> TAPI
+  TAPI --> TGP
+  TGP --> TGCB
+  TGCB --> CHAT
   CHAT --> PX
   PX --> LLM["Gemini / Anthropic"]
 
-  N8N --> ORCH
+  N8N --> SIGN["signed internal request"]
+  SIGN --> ORCH
   ORCH --> TGAPI["Telegram sendMessage"]
-  TGUSER --> TGCB
-  TGCB --> CHAT
-  TGCB --> INBOX
+  TGCB --> TGAPI
 
+  TGCB --> INBOX
   INBOX --> AG
   AG --> OUTBOX
-  AG --> VAULT
   AG --> VERIFIED
+  AG --> VAULT
+  AG --> RNOTES
+  AG --> ARCH
 
-  ORCH --> MEMORY
-  TGCB --> MEMORY
+  ORCH --> MEM
+  TGCB --> MEM
   GCAL --> ORCH
 ```
 
-## 3) 핵심 시퀀스
+내부 이벤트 경계
+- `n8n -> /api/orchestration/events`는 내부 인증 헤더를 반드시 거칩니다.
+- 필수 헤더:
+  - `x-internal-token`
+  - `x-timestamp`
+  - `x-nonce`
+  - `x-signature`
+- 시크릿이 없으면 기본값으로 열리지 않고 fail-closed로 거부합니다.
 
-### 3-1) 사용자 채팅
+## 3) 저장 경계
+
+### 사용자-facing vault
+- [shared_data/obsidian_vault](/Users/isanginn/Workspace/Agent_Workspace/shared_data/obsidian_vault)
+
+여기에는 사람이 다시 읽을 노트만 둡니다.
+- `01-Knowledge`
+- `02-References`
+- `03-Projects`
+- `04-Writing`
+- `05-Daily`
+- `06-MOCs`
+- `Home.md`
+
+### runtime/internal data
+- `shared_data/inbox`
+- `shared_data/outbox`
+- `shared_data/verified_inbox`
+- `shared_data/shared_memory`
+- `shared_data/runtime_agent_notes`
+- `shared_data/archive`
+- `shared_data/runtime/obsidian_support`
+
+원칙
+- Minerva/Hermes runtime markdown는 user-facing vault에 들어가지 않습니다.
+- agent support/template/verification artifact는 user-facing vault에 두지 않습니다.
+- Clio note만 user-facing vault에 씁니다.
+
+## 4) 핵심 시퀀스
+
+### 4-1) Telegram 일반 대화
 
 ```mermaid
 sequenceDiagram
-  participant U as User
-  participant C as /api/chat
-  participant P as llm-proxy
+  participant U as Telegram User
+  participant T as Telegram Cloud
+  participant TP as telegram-poller
+  participant W as /api/telegram/webhook
+  participant C as "signed /api/chat"
+  participant PX as llm-proxy
   participant L as LLM
 
-  U->>C: agentId + message + history
-  C->>P: 내부 토큰/HMAC 헤더 + memory_context
-  P->>L: 모델 라우팅(minerva/clio/hermes)
-  L-->>P: reply
-  P-->>C: normalized payload
-  C-->>U: reply
+  U->>T: text (/help, /reset, 일반 질문)
+  TP->>T: getUpdates
+  T-->>TP: update
+  TP->>W: forward update
+  W->>C: agentId=minerva + working memory
+  C->>PX: 모델 라우팅
+  PX->>L: infer
+  L-->>PX: reply
+  PX-->>W: normalized reply
+  W-->>U: telegram sendMessage
 ```
 
-### 3-2) Hermes 스케줄 브리핑
+### 4-2) Hermes 스케줄 브리핑
 
 ```mermaid
 sequenceDiagram
@@ -95,7 +158,7 @@ sequenceDiagram
   O->>T: Minerva briefing + inline buttons
 ```
 
-### 3-3) Telegram 인라인 버튼 후속 처리
+### 4-3) Clio 저장/제안/승인
 
 ```mermaid
 sequenceDiagram
@@ -103,51 +166,104 @@ sequenceDiagram
   participant W as /api/telegram/webhook
   participant I as shared_data/inbox
   participant A as nanoclaw-agent
+  participant V as obsidian_vault
+  participant Q as approval queue
 
-  U->>W: clio_save / hermes_deep_dive / minerva_insight
+  U->>W: clio_save / clio_suggestions / clio_reviews
   W->>I: inbox task 생성
   I->>A: watchdog consume
-  A->>A: vault/outbox/verified 생성
-  A-->>I: 원본 archive 이동
+  A->>V: template-driven note draft 저장
+  A->>Q: claim review / note suggestion 등록
+  Q->>W: Telegram approval request
+  W-->>U: review/suggestion + approval buttons
 ```
 
-## 4) 설정 단일 소스
+### 4-4) Google Calendar read-only
+
+```mermaid
+sequenceDiagram
+  participant U as Telegram User
+  participant W as /api/telegram/webhook
+  participant G as Google OAuth + Calendar API
+
+  U->>W: /gcal_connect
+  W-->>U: OAuth authorize URL
+  U->>G: consent (readonly)
+  G->>W: /api/integrations/google-calendar/oauth/callback
+  W-->>U: 연결 완료 알림
+  U->>W: /gcal_today
+  W->>G: list events (today)
+  W-->>U: 일정 요약 전송
+```
+
+## 5) 설정 단일 소스
 
 | 대상 | 파일 |
 |---|---|
 | 에이전트 canonical ID/역할 | `config/agents.json` |
 | 에이전트 퍼소나 | `config/personas.json` |
-| 런타임 정책/비밀값 | `.env.local` |
-| Hermes 소스 분류 규칙 | `src/lib/orchestration/source-taxonomy.ts` |
-
-## 5) 저장소 산출물 구조
-
-```text
-shared_data/
-  inbox/               # webhook/callback 기반 task 입력
-  outbox/              # agent 처리 결과(JSON)
-  archive/             # 처리 완료 원본
-  obsidian_vault/      # Clio markdown 산출물
-  verified_inbox/      # Clio 정제 payload
-  shared_memory/       # events, cooldown, digest, telegram history, compact memory
-```
+| Minerva 대화 기준 | `docs/MINERVA_PERSONA_SPEC.md` |
+| Clio Obsidian 기준 | `docs/CLIO_V2_SPEC.md` |
+| 역할별 메모리 분리 기준 | `docs/MEMORY_SPLIT_SPEC.md` |
+| 런타임 정책/비밀값 | `.env.local` + Keychain/1Password ref |
+| Hermes 소스 분류 규칙 | `proxy/app/source_taxonomy.py` |
 
 ## 6) 구현 근거 파일 맵
 
 | 기능 | 구현 파일 |
 |---|---|
-| 정책 엔진(임계값/쿨다운/다이제스트) | `src/lib/orchestration/policy.ts` |
-| 오케스트레이션 엔드포인트 | `src/app/api/orchestration/events/route.ts` |
-| Telegram 포맷/인라인 버튼/번역 정책 | `src/lib/orchestration/telegram.ts` |
-| Telegram webhook 처리 | `src/app/api/telegram/webhook/route.ts` |
-| 메모리 압축/컨텍스트 주입 | `src/lib/orchestration/compact-memory.ts`, `src/lib/orchestration/memory-context.ts` |
-| LLM 라우팅/모델 fallback | `proxy/app/main.py`, `proxy/app/llm_client.py` |
-| agent 파일 파이프라인 | `agent/main.py` |
-| n8n 부트스트랩 | `scripts/n8n/*.sh`, `n8n/workflows/*.json` |
+| Telegram webhook/chat/runtime HTTP 라우트 | `proxy/app/http_routes.py`, `proxy/app/main.py` |
+| Telegram polling bridge | `proxy/app/telegram_poller.py` |
+| Minerva prompt/톤/모델 라우팅 | `proxy/app/llm_client.py`, `config/personas.json` |
+| 정책 엔진(임계값/쿨다운/다이제스트) | `proxy/app/orch_policy.py` |
+| 이벤트 컨트랙트 검증 | `proxy/app/orch_contract.py`, `proxy/app/main.py` |
+| 내부 인증(HMAC/token/timestamp/nonce) | `proxy/app/security.py`, `scripts/runtime/internal-api-request.sh` |
+| 역할/메모리 컨텍스트 조립 | `proxy/app/role_runtime.py`, `proxy/app/main.py` |
+| morning briefing 관찰 로그 | `proxy/app/orch_runtime_state.py`, `proxy/app/orch_store.py`, `proxy/app/main.py`, `scripts/verify/report-morning-briefing-observations.sh` |
+| 메모리/승인 큐 저장소 | `proxy/app/orch_store.py`, `proxy/app/orch_runtime_state.py`, `proxy/app/orch_minerva_memory.py`, `proxy/app/orch_role_memories.py`, `proxy/app/orch_approval.py`, `proxy/app/orch_clio_common.py`, `proxy/app/orch_clio_reviews.py`, `proxy/app/orch_clio_suggestions.py`, `proxy/app/orch_clio_state.py` |
+| n8n execution cleanup | `scripts/n8n/cleanup-execution-data.sh` |
+## 7) Hermes Daily Workflow 구조
 
-## 7) 현재 아키텍처에서 의도적으로 제외된 것
-- Telegram 외 채널 추상화(Slack/Email 드라이버)
-- 승인 큐 기반 2단계 Human-in-the-loop 액션
-- 엄격한 이벤트 JSON Schema 버전 강제(`schema_version` 계약)
+현재 `Hermes Daily Briefing Workflow`는 아래 단위로 나뉩니다.
 
-이 항목들은 [IMPLEMENTATION_COVERAGE](IMPLEMENTATION_COVERAGE.md)에 "부분완료/미구현"으로 추적합니다.
+1. `Prepare P0/P1/P2 Config`
+2. `Collect Tier Signals`
+3. `Build Briefing Summary`
+4. `Build Briefing Template`
+5. `Build Orchestration Payload`
+6. `Publish Orchestration Event`
+7. `Build API Response`
+
+의도
+- 수집/요약/템플릿/서명/전송/응답을 분리해서 drift와 복붙을 줄임
+- `Build API Response`와 `Build Briefing Template`에 기능이 과도하게 몰리는 문제를 완화
+
+## 8) 미래 운영 설계 문서
+- VPS 운영 범위: [VPS_OPERATION_PLAN](VPS_OPERATION_PLAN.md)
+- VPS 보안 경계: [VPS_SECURITY_ARCHITECTURE](VPS_SECURITY_ARCHITECTURE.md)
+- Aegis control plane: [AEGIS_PLAN](AEGIS_PLAN.md)
+
+중요:
+- 위 문서들은 현재 런타임이 아니라 "미래 이전 기준선"입니다.
+- 현재 실작동 범위는 이 문서의 1~7장 기준으로 판단합니다.
+
+## 9) 현재 의도적으로 제외된 것
+- Telegram 외 채널 추상화(Slack/Email)
+- Aegis 자동 격리 런타임
+- NotebookLM 실사용 검증 완료 상태
+
+이 항목들은 [IMPLEMENTATION_COVERAGE](IMPLEMENTATION_COVERAGE.md)에서 추적합니다.
+
+## 10) 현재 구조적 리스크
+즉시 운영을 막는 수준은 아니지만, 다음 3개는 유지보수 리스크입니다.
+
+1. `proxy/app/orch_store.py`
+- facade 자체는 가벼워졌지만 approval / clio state / memory adapter가 여전히 결합된 경계 역할을 한다
+
+2. `agent/clio_pipeline.py`
+- Clio 분류, 제목/요약 생성, 태그/링크/재사용 판단이 아직 한 모듈에 남아 있다
+
+3. `agent/runtime_worker.py`
+- watcher / inbox I/O / archive / quarantine / runtime orchestration 책임이 남아 있다
+
+즉, 현재 아키텍처는 ingress, approval/clio-state, runtime memory, Clio render/NotebookLM 경계까지 분리됐고, 다음 리팩터링 과제는 `orch_store` façade 축소와 `Clio inference` 추가 분리입니다.

@@ -56,6 +56,29 @@ class SearchClientTests(unittest.TestCase):
         self.assertGreaterEqual(stats.get("prompt_like_removed", 0), 1)
         self.assertEqual(stats.get("dropped_unsafe_url"), 1)
 
+    def test_tavily_api_base_must_be_allowlisted_https(self) -> None:
+        os.environ["SEARCH_PROVIDER"] = "tavily"
+        os.environ["TAVILY_API_KEY"] = "test-key"
+        os.environ["TAVILY_API_BASE"] = "http://127.0.0.1:9000"
+
+        with self.assertRaises(SearchProviderError):
+            get_search_results(query="ai trends", max_results=3)
+
+    def test_tavily_api_base_accepts_explicit_allowlist(self) -> None:
+        os.environ["SEARCH_PROVIDER"] = "tavily"
+        os.environ["TAVILY_API_KEY"] = "test-key"
+        os.environ["TAVILY_API_BASE"] = "https://api.tavily.com"
+        os.environ["TAVILY_API_ALLOWED_HOSTS"] = "api.tavily.com"
+
+        with patch("app.search_client.urllib.request.urlopen") as mocked:
+            mocked.return_value.__enter__.return_value.read.return_value = b'{"results":[]}'
+            mocked.return_value.__enter__.return_value.status = 200
+            results, provider, stats = get_search_results(query="ai trends", max_results=3)
+
+        self.assertEqual(provider, "tavily")
+        self.assertEqual(results, [])
+        self.assertEqual(stats.get("kept_count"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

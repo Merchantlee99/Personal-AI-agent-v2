@@ -3,12 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-if [[ -f "${REPO_ROOT}/.env.local" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${REPO_ROOT}/.env.local"
-  set +a
-fi
+source "${REPO_ROOT}/scripts/runtime/load-env.sh"
+load_runtime_env "${REPO_ROOT}/.env.local"
 
 TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 if [[ -z "$TOKEN" ]]; then

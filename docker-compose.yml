@@ -1,46 +1,87 @@
 services:
-  frontend:
-    build:
-      context: .
-    container_name: nanoclaw-frontend
-    depends_on:
-      - llm-proxy
-    env_file:
-      - .env.local
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - ./shared_data:/app/shared_data
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    networks:
-      - internal
-      - external
-
   llm-proxy:
     build:
       context: ./proxy
     container_name: nanoclaw-llm-proxy
-    env_file:
-      - .env.local
     environment:
       AGENT_CONFIG_PATH: /app/config/agents.json
       AGENT_PERSONA_PATH: /app/config/personas.json
-      LLM_USAGE_STORE_PATH: /app/shared_logs/llm_usage_metrics.json
+      LLM_USAGE_STORE_PATH: /app/shared_data/logs/llm_usage_metrics.json
+      SHARED_ROOT_PATH: /app/shared_data
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_BASE: ${ANTHROPIC_API_BASE:-https://api.anthropic.com}
+      ANTHROPIC_VERSION: ${ANTHROPIC_VERSION:-2023-06-01}
+      MODEL_MINERVA: ${MODEL_MINERVA:-}
+      MODEL_CLIO: ${MODEL_CLIO:-}
+      MODEL_HERMES: ${MODEL_HERMES:-}
+      MODEL_FALLBACK_MINERVA: ${MODEL_FALLBACK_MINERVA:-}
+      MODEL_FALLBACK_CLIO: ${MODEL_FALLBACK_CLIO:-}
+      MODEL_FALLBACK_HERMES: ${MODEL_FALLBACK_HERMES:-}
+      MODEL_MAX_RETRIES: ${MODEL_MAX_RETRIES:-}
+      MODEL_REQUEST_TIMEOUT_SEC: ${MODEL_REQUEST_TIMEOUT_SEC:-}
+      MODEL_RETRY_BACKOFF_SEC: ${MODEL_RETRY_BACKOFF_SEC:-}
+      MODEL_RETRY_BACKOFF_MAX_SEC: ${MODEL_RETRY_BACKOFF_MAX_SEC:-}
+      MODEL_TEMPERATURE: ${MODEL_TEMPERATURE:-}
+      MODEL_MAX_OUTPUT_TOKENS: ${MODEL_MAX_OUTPUT_TOKENS:-}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      INTERNAL_SIGNING_SECRET: ${INTERNAL_SIGNING_SECRET:-}
+      INTERNAL_NONCE_TTL_SEC: ${INTERNAL_NONCE_TTL_SEC:-}
+      INTERNAL_NONCE_MAX_ENTRIES: ${INTERNAL_NONCE_MAX_ENTRIES:-}
+      INTERNAL_RATE_LIMIT_WINDOW_SEC: ${INTERNAL_RATE_LIMIT_WINDOW_SEC:-}
+      INTERNAL_RATE_LIMIT_MAX_PRINCIPALS: ${INTERNAL_RATE_LIMIT_MAX_PRINCIPALS:-}
+      INTERNAL_RATE_LIMIT_PER_MINUTE: ${INTERNAL_RATE_LIMIT_PER_MINUTE:-}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-auto}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_API_BASE: ${TAVILY_API_BASE:-https://api.tavily.com}
+      TAVILY_API_ALLOWED_HOSTS: ${TAVILY_API_ALLOWED_HOSTS:-api.tavily.com}
+      TAVILY_SEARCH_DEPTH: ${TAVILY_SEARCH_DEPTH:-basic}
+      MINERVA_IMMEDIATE_MIN_CONFIDENCE: ${MINERVA_IMMEDIATE_MIN_CONFIDENCE:-}
+      MINERVA_TOPIC_COOLDOWN_HOURS: ${MINERVA_TOPIC_COOLDOWN_HOURS:-}
+      MINERVA_DIGEST_SLOTS: ${MINERVA_DIGEST_SLOTS:-}
+      MINERVA_IMMEDIATE_MIN_PRIORITY: ${MINERVA_IMMEDIATE_MIN_PRIORITY:-}
+      MINERVA_BRIEFING_TIMEZONE: ${MINERVA_BRIEFING_TIMEZONE:-Asia/Seoul}
+      HERMES_AUTO_CLIO_SAVE: ${HERMES_AUTO_CLIO_SAVE:-true}
+      HERMES_AUTO_CLIO_SAVE_MIN_IMPACT: ${HERMES_AUTO_CLIO_SAVE_MIN_IMPACT:-0.75}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_ALLOWED_CALLBACK_ACTIONS: ${TELEGRAM_ALLOWED_CALLBACK_ACTIONS:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      TELEGRAM_API_TIMEOUT_MS: ${TELEGRAM_API_TIMEOUT_MS:-8000}
+      TELEGRAM_APPROVAL_QUEUE_ENABLED: ${TELEGRAM_APPROVAL_QUEUE_ENABLED:-true}
+      TELEGRAM_APPROVAL_REQUIRED_ACTIONS: ${TELEGRAM_APPROVAL_REQUIRED_ACTIONS:-}
+      TELEGRAM_APPROVAL_REQUIRED_STEPS: ${TELEGRAM_APPROVAL_REQUIRED_STEPS:-2}
+      TELEGRAM_APPROVAL_TTL_SEC: ${TELEGRAM_APPROVAL_TTL_SEC:-300}
+      TELEGRAM_APPROVAL_RETENTION_HOURS: ${TELEGRAM_APPROVAL_RETENTION_HOURS:-72}
+      TELEGRAM_TEXT_RATE_LIMIT_WINDOW_SEC: ${TELEGRAM_TEXT_RATE_LIMIT_WINDOW_SEC:-60}
+      TELEGRAM_TEXT_RATE_LIMIT_MAX: ${TELEGRAM_TEXT_RATE_LIMIT_MAX:-12}
+      TELEGRAM_MINERVA_TIMEOUT_MS: ${TELEGRAM_MINERVA_TIMEOUT_MS:-12000}
+      TELEGRAM_MINERVA_RETRY_MAX: ${TELEGRAM_MINERVA_RETRY_MAX:-2}
+      TELEGRAM_MINERVA_HISTORY_TURNS: ${TELEGRAM_MINERVA_HISTORY_TURNS:-10}
+      GOOGLE_CALENDAR_ENABLED: ${GOOGLE_CALENDAR_ENABLED:-false}
+      GOOGLE_CALENDAR_READONLY: ${GOOGLE_CALENDAR_READONLY:-true}
+      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:-primary}
+      GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${GOOGLE_CALENDAR_OAUTH_CLIENT_ID:-}
+      GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_CALENDAR_OAUTH_REDIRECT_URI: ${GOOGLE_CALENDAR_OAUTH_REDIRECT_URI:-http://127.0.0.1:8001/api/integrations/google-calendar/oauth/callback}
+      GOOGLE_CALENDAR_OAUTH_SCOPES: ${GOOGLE_CALENDAR_OAUTH_SCOPES:-https://www.googleapis.com/auth/calendar.readonly}
+      GOOGLE_CALENDAR_TOKEN_PATH: ${GOOGLE_CALENDAR_TOKEN_PATH:-shared_data/shared_memory/google_calendar_tokens.json}
+      GOOGLE_CALENDAR_STATE_PATH: ${GOOGLE_CALENDAR_STATE_PATH:-shared_data/shared_memory/google_calendar_oauth_state.json}
+      GOOGLE_CALENDAR_ATTACH_TO_MORNING_BRIEFING: ${GOOGLE_CALENDAR_ATTACH_TO_MORNING_BRIEFING:-true}
+      GOOGLE_CALENDAR_TIMEZONE: ${GOOGLE_CALENDAR_TIMEZONE:-}
+      DEEPL_API_KEY: ${DEEPL_API_KEY:-}
+      DEEPL_API_BASE: ${DEEPL_API_BASE:-https://api-free.deepl.com}
+      DEEPL_TARGET_LANG: ${DEEPL_TARGET_LANG:-KO}
+      DEEPL_GLOSSARY_ID: ${DEEPL_GLOSSARY_ID:-}
+      LLM_DAILY_LIMIT: ${LLM_DAILY_LIMIT:-1000}
+      UI_LLM_DAILY_LIMIT: ${UI_LLM_DAILY_LIMIT:-1000}
+      MEMORY_MD_MAX_BYTES: ${MEMORY_MD_MAX_BYTES:-280000}
+      MEMORY_SKIP_TAGS: ${MEMORY_SKIP_TAGS:-verification,rehearsal,test,smoke}
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
@@ -49,10 +90,10 @@ services:
     cap_drop:
       - ALL
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     volumes:
       - ./config:/app/config:ro
-      - ./shared_data/logs:/app/shared_logs
+      - ./shared_data:/app/shared_data
     healthcheck:
       test:
         - CMD-SHELL
@@ -67,14 +108,42 @@ services:
       - internal
       - external
 
+  telegram-poller:
+    build:
+      context: ./proxy
+    container_name: nanoclaw-telegram-poller
+    depends_on:
+      - llm-proxy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["python", "-m", "app.telegram_poller"]
+    environment:
+      SHARED_ROOT_PATH: /app/shared_data
+      TELEGRAM_INTERNAL_WEBHOOK_URL: http://llm-proxy:8000/api/telegram/webhook
+      TELEGRAM_POLLER_DEAD_LETTER_PATH: /app/shared_data/logs/telegram_poller_dead_letter.jsonl
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_POLLER_STATE_PATH: ${TELEGRAM_POLLER_STATE_PATH:-shared_data/shared_memory/telegram_poller_state.json}
+      TELEGRAM_POLL_TIMEOUT_SEC: ${TELEGRAM_POLL_TIMEOUT_SEC:-30}
+      TELEGRAM_POLL_RETRY_DELAY_SEC: ${TELEGRAM_POLL_RETRY_DELAY_SEC:-5}
+      TELEGRAM_POLLER_DELETE_WEBHOOK_ON_START: ${TELEGRAM_POLLER_DELETE_WEBHOOK_ON_START:-true}
+    volumes:
+      - ./shared_data:/app/shared_data
+    networks:
+      - internal
+      - external
+
   nanoclaw-agent:
     build:
       context: ./agent
     container_name: nanoclaw-agent
     depends_on:
       - llm-proxy
-    env_file:
-      - .env.local
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
@@ -89,6 +158,15 @@ services:
       OUTBOX_DIR: outbox
       ARCHIVE_DIR: archive
       VAULT_DIR: obsidian_vault
+      VERIFIED_INBOX_DIR: verified_inbox
+      DEEPL_API_KEY: ${DEEPL_API_KEY:-}
+      DEEPL_TARGET_LANG: ${DEEPL_TARGET_LANG:-KO}
+      DEEPL_GLOSSARY_ID: ${DEEPL_GLOSSARY_ID:-}
+      NOTEBOOKLM_SYNC_ENABLED: ${NOTEBOOKLM_SYNC_ENABLED:-false}
+      NOTEBOOKLM_INGEST_WEBHOOK_URL: ${NOTEBOOKLM_INGEST_WEBHOOK_URL:-}
+      NOTEBOOKLM_API_KEY: ${NOTEBOOKLM_API_KEY:-}
+      NOTEBOOKLM_TIMEOUT_SEC: ${NOTEBOOKLM_TIMEOUT_SEC:-8}
+      HERMES_DEEP_DIVE_AUTO_MINERVA: ${HERMES_DEEP_DIVE_AUTO_MINERVA:-true}
     volumes:
       - ./shared_data:/app/shared_data
       - ./config:/app/config:ro
@@ -98,8 +176,6 @@ services:
   n8n:
     image: n8nio/n8n:1.95.3
     container_name: nanoclaw-n8n
-    env_file:
-      - .env.local
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -108,6 +184,28 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+      N8N_RUNNERS_ENABLED: ${N8N_RUNNERS_ENABLED:-true}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: ${N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS:-false}
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-}
+      N8N_DEFAULT_TIMEZONE: ${N8N_DEFAULT_TIMEZONE:-Asia/Seoul}
+      NODE_FUNCTION_ALLOW_BUILTIN: ${NODE_FUNCTION_ALLOW_BUILTIN:-crypto}
+      ORCHESTRATION_EVENT_URL: ${ORCHESTRATION_EVENT_URL:-http://llm-proxy:8000/api/orchestration/events}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      INTERNAL_SIGNING_SECRET: ${INTERNAL_SIGNING_SECRET:-}
+      HERMES_SEARCH_PROVIDER: ${HERMES_SEARCH_PROVIDER:-auto}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-auto}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_API_BASE: ${TAVILY_API_BASE:-https://api.tavily.com}
+      TAVILY_API_ALLOWED_HOSTS: ${TAVILY_API_ALLOWED_HOSTS:-api.tavily.com}
+      TAVILY_SEARCH_DEPTH: ${TAVILY_SEARCH_DEPTH:-basic}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./shared_data:/data/shared_data

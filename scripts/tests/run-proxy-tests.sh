@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
 echo "[tests] building llm-proxy image"
-docker compose build llm-proxy >/dev/null
+compose_cmd build llm-proxy >/dev/null
 
 echo "[tests] running proxy unit tests"
-docker compose run --rm --no-deps -T \
+compose_cmd run --rm --no-deps -T \
   -v "$ROOT_DIR/proxy:/workspace" \
   -v "$ROOT_DIR/config:/workspace/config:ro" \
   -w /workspace \

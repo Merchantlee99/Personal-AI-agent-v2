@@ -3,29 +3,31 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/load-env.sh
 
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env.local}"
+load_runtime_env "$ENV_FILE"
+
+API_PORT="${API_PORT:-8001}"
+BASE_URL="http://127.0.0.1:${API_PORT}"
 MEMORY_FILE="shared_data/shared_memory/memory.md"
 
 echo "[memory-md] send orchestration event"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$RANDOM"
-status="$(
-  curl -sS -o /tmp/memory_md_event.json -w '%{http_code}' \
-    -X POST "${BASE_URL}/api/orchestration/events" \
-    -H 'content-type: application/json' \
-    -d "{
-        \"schemaVersion\":1,
-        \"agentId\":\"hermes\",
-      \"topicKey\":\"runtime-memory-check-${RUN_ID}\",
-      \"title\":\"Runtime Memory Check ${RUN_ID}\",
-      \"summary\":\"runtime memory 기록 정책 검증 이벤트\",
-      \"priority\":\"normal\",
-      \"confidence\":0.62,
-      \"tags\":[\"memory\",\"ops\"],
-      \"sourceRefs\":[{\"title\":\"Memory Check Source\",\"url\":\"https://example.com/memory-check\"}]
-    }" || true
-)"
+cat >/tmp/memory_md_event.payload.json <<JSON
+{
+  "schemaVersion": 1,
+  "agentId": "hermes",
+  "topicKey": "runtime-memory-check-${RUN_ID}",
+  "title": "Runtime Memory Check ${RUN_ID}",
+  "summary": "runtime memory 기록 정책 검증 이벤트",
+  "priority": "normal",
+  "confidence": 0.62,
+  "tags": ["memory", "ops"],
+  "sourceRefs": [{"title": "Memory Check Source", "url": "https://example.com/memory-check"}]
+}
+JSON
+status="$(bash scripts/runtime/internal-api-request.sh POST "${BASE_URL}/api/orchestration/events" /tmp/memory_md_event.json /tmp/memory_md_event.payload.json || true)"
 
 if [[ "$status" != "200" ]]; then
   echo "[memory-md] orchestration request failed status=${status}" >&2

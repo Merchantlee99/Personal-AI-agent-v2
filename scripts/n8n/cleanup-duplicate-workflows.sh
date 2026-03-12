@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/runtime/compose-env.sh
 
 WORKFLOW_NAME="${N8N_WORKFLOW_NAME:-NanoClaw v2 Smoke Webhook}"
 KEEP_WORKFLOW_ID="${N8N_KEEP_WORKFLOW_ID:-}"
 
 echo "[cleanup] ensure n8n up"
-docker compose up -d n8n >/dev/null
+compose_cmd up -d n8n >/dev/null
 
 ids="$(docker exec nanoclaw-n8n n8n list:workflow 2>/dev/null | awk -F'|' -v target="$WORKFLOW_NAME" '$2 == target {print $1}')"
 count="$(printf '%s\n' "$ids" | awk 'NF{c++} END{print c+0}')"
@@ -35,6 +36,6 @@ while IFS= read -r id; do
 done <<< "$ids"
 
 echo "[cleanup] restarting n8n"
-docker compose restart n8n >/dev/null
+compose_cmd restart n8n >/dev/null
 
 echo "[cleanup] done"

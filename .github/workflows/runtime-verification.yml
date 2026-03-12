@@ -6,6 +6,8 @@ on:
       - main
       - "codex/**"
   pull_request:
+  schedule:
+    - cron: "55 23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -45,6 +47,7 @@ jobs:
             /^INTERNAL_API_TOKEN=/{print "INTERNAL_API_TOKEN=" t1; next}
             /^INTERNAL_SIGNING_SECRET=/{print "INTERNAL_SIGNING_SECRET=" t2; next}
             /^N8N_ENCRYPTION_KEY=/{print "N8N_ENCRYPTION_KEY=" t3; next}
+            /^LLM_PROVIDER=/{print "LLM_PROVIDER=mock"; next}
             {print}
           ' .env.local > .env.local.tmp
           mv .env.local.tmp .env.local
@@ -59,17 +62,44 @@ jobs:
       - name: Validate Agent Config
         run: npm run verify:config
 
-      - name: Validate UI Structure
-        run: npm run verify:ui-structure
-
-      - name: Validate UI Inline Style Budget
-        run: npm run verify:ui-inline-style
-
       - name: Proxy Regression Tests
         run: npm run test:proxy
 
-      - name: Runtime Smoke Verification
-        run: npm run verify:smoke
+      - name: Runtime Smoke Proxy Verification
+        run: bash scripts/verify/smoke-runtime.sh proxy
+
+      - name: Runtime Smoke n8n Verification
+        run: bash scripts/verify/smoke-runtime.sh n8n
+
+      - name: Runtime Agent Worker Verification
+        run: docker compose --env-file .env.local run --rm -v "$PWD/agent:/work" -w /work nanoclaw-agent python -m unittest tests.test_main -v
+
+      - name: Runtime Smoke Security Verification
+        run: bash scripts/verify/smoke-runtime.sh security
+
+      - name: Validate Event Contract
+        run: |
+          set -euo pipefail
+          if ! npm run verify:event-contract > /tmp/event-contract.log 2>&1; then
+            cat /tmp/event-contract.log || true
+            tail -n 40 /tmp/event-contract.log | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+          cat /tmp/event-contract.log
+
+      - name: Security Baseline Verification
+        run: |
+          set -euo pipefail
+          if ! npm run security:check-orchestration > /tmp/security-baseline.log 2>&1; then
+            cat /tmp/security-baseline.log || true
+            tail -n 40 /tmp/security-baseline.log | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+          cat /tmp/security-baseline.log
 
       - name: Collect Runtime Logs
         if: always()
